@@ -1,0 +1,1 @@
+"""Owned Trip Attempt capability."""
