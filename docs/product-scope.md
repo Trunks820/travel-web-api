@@ -1,6 +1,6 @@
 # Product Scope
 
-Status: **v0.1 Documentation Accepted / Implementation Pending**
+Status: **v0.1 Implementation Complete / Acceptance Pending**
 
 ## 1. Problem
 
@@ -23,8 +23,9 @@ to the travel-generation engine.
 5. transactional generation quota reservation and settlement
 6. automatic quota release for failed, timed-out, or rejected generation
 7. authenticated seven-day trip history including safe failure reasons
-8. administrator APIs for users, invitations, quota grants, trip attempts,
-   dashboard summaries, and audit logs
+8. administrator APIs for users and role control, signed quota adjustments,
+   short-code Invitation batches, permanent Trip/Artifact inspection,
+   operational reports, and audit logs
 9. an internal-only HTTP boundary to `hermes-travel`
 10. observability sufficient to explain login, quota, ownership, and upstream
    failures without logging secrets or personal data
@@ -63,13 +64,15 @@ v0.1 does not include:
 | Session cookie | Uses | Uses | Owns | No |
 | User profile display | Owns | Displays managed view | Owns API | No |
 | Trip form | Owns | No | Validates boundary | Validates generation request |
-| Beta generation credit | Displays | Grants through API | Owns | No |
+| Beta generation credit | Displays | Applies signed adjustments | Owns transaction and ledger | No |
 | Job ownership | No | Observes through API | Owns | Executes opaque job |
 | Trip history | Displays | Observes through API | Owns | Stores generation record only |
 | Safe failure records | Displays own seven-day view | Displays operational view | Owns | Produces upstream outcome |
 | PDF export | Owns trigger/download UX | Read-only operational view | Authorizes/proxies | Renders artifact |
-| Invitations | Uses at registration | Manages through API | Owns | No |
+| Invitations | Uses at registration | Manages short-code batches | Owns HMAC records and redemption | No |
 | Admin audit | No | Displays | Owns | No |
+| Operational reports | No | Displays | Owns BFF aggregates | Supplies versioned job projection only |
+| Failed Writer draft | No | Read-only diagnostic view | Authorizes/audits proxy | Owns retained diagnostic source |
 | City/retrieval/route | No | No | No | Owns |
 | Writer/Review/Publish | No | No | No | Owns |
 | Provider pool | No | No | No | Owns |
@@ -172,6 +175,25 @@ These defaults are accepted as the concrete v0.1 implementation target:
 - Administrators use a separate `travel-admin` frontend that calls only
   authorized `/api/admin/*` BFF endpoints; it never connects to PostgreSQL or
   `hermes-travel` directly.
+- The database role enum remains exactly `USER`/`ADMIN`. `OWNER` is a
+  server-side product identity bound to one immutable configured `app_user.id`.
+- `OWNER` may grant or revoke `ADMIN`, including on the configured Owner
+  account; the last configured Owner identity remains protected. An `ADMIN`
+  cannot grant/revoke roles and cannot disable or adjust quota for self,
+  another `ADMIN`, or the configured `OWNER`.
+- User disablement revokes all current sessions immediately. Restoration does
+  not restore old sessions, role, quota, history, or already-running Trip
+  Attempts.
+- Every Administrator write requires UUID idempotency, a reason, an atomic
+  transaction, and a redacted append-only audit record. v0.1 does not add
+  recent re-authentication, MFA, or a second confirmation protocol.
+- New Invitation batches contain 1-200 single-use `YT-XXXX-XXXX` codes,
+  defaulting to 50 codes and 30 days, with a 1-90 day expiry. New codes are
+  never permanent and raw values are disclosed only once.
+- Administrator Trip inspection defaults to seven days but may filter the full
+  permanent de-identified archive. Failed Writer drafts and READY Artifacts are
+  diagnostic/read-only; neither may be published, regenerated, deleted, or
+  turned into a second BFF truth source.
 - Ordinary Users never use `travel-admin`; login, quota, own Trip History, safe
   failure records, PDF export, and Account Closure belong to `travel-web`.
 - No personal login data is sent to `hermes-travel`.
@@ -202,16 +224,21 @@ Accepted session policy:
 - logout, account disablement, identity changes, and Administrator demotion
   revoke affected sessions immediately
 
-Accepted Administrator bootstrap policy:
+Accepted Administrator bootstrap and role policy:
 
 - the first Administrator registers and verifies email as a normal User
-- the server operator promotes that existing User with a reviewed PostgreSQL
-  transaction on the private server
+- the server operator promotes that existing User with a controlled bootstrap
+  transaction on the private server and configures that immutable
+  `app_user.id` as the product `OWNER`
 - the same transaction revokes existing sessions and records a
   `SYSTEM_BOOTSTRAP` Administrator audit event
-- v0.1 exposes no browser API for Administrator promotion or demotion
-- later emergency role changes remain explicit server-operator database
-  transactions with session revocation and audit evidence
+- v0.1 exposes task-specific OWNER-only APIs to grant or revoke the `ADMIN`
+  database role after normal authentication and current-permission checks
+- the configured OWNER identity is derived only from `app_user.id`, never email
+- OWNER may operate on every existing account, including self; ADMIN may manage
+  only ordinary USER accounts according to the endpoint matrix
+- the final configured OWNER identity cannot be removed or left without the
+  privileges required to recover administration
 
 Accepted retention policy:
 
@@ -223,7 +250,39 @@ Accepted retention policy:
 - de-identified trip content, outcome, failure category, and quality telemetry
   remain indefinitely as product data
 
-## 8. v0.2 Product Boundary
+## 8. travel-admin A0 Product Contract
+
+The Administrator A0 contract is frozen for v0.1:
+
+- `travel-admin` is an internal operations frontend and calls only
+  `/api/admin/*`; Visitor requests receive `401` and ordinary USER requests
+  receive `403`.
+- The API contains only task-specific User, role, quota, Invitation, Trip,
+  Artifact, report, and audit operations. It accepts no SQL, schema/table/field
+  names, query fragments, or generic BI definitions.
+- All lists are server-paginated with stable sorting and explicit filter
+  allowlists. Responses include `request_id`; aggregate responses also include
+  server-computed `as_of`.
+- User lists mask email. Full-email reveal, failed-draft inspection, and
+  Artifact download are separately authenticated, audited, and returned with
+  `Cache-Control: no-store`.
+- Quota changes use an immutable signed adjustment ledger. Negative adjustments
+  are rejected atomically if the post-adjustment available balance would be
+  below zero; corrections use a linked reverse entry.
+- Raw Invitation codes use a keyed HMAC at rest, are never logged, and are
+  disclosed only in the first successful batch-creation response. An
+  idempotent retry returns the stored batch result without revealing raw codes
+  again.
+- Administrator reporting is limited to the frozen Dashboard, Trip generation,
+  and structured User preference aggregates. Raw notes, email, prompts, Writer
+  text, arbitrary SQL, word clouds, and user-level preference drill-down are
+  excluded.
+- Hermes remains the source for global job-step, failed-draft, structured
+  result, and Artifact metadata. If the required versioned internal-admin HTTP
+  contract is absent, P4.4 stops with a minimal contract proposal; the BFF
+  never connects to the Hermes database.
+
+## 9. v0.2 Product Boundary
 
 v0.2 is a Linux.do promotion-validation release, not a general public launch.
 It adds:

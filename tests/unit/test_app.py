@@ -157,7 +157,115 @@ def test_openapi_metadata_is_the_frontend_contract_boundary() -> None:
     paths = response.json()["paths"]
     assert "/api/me/trips" in paths
     assert "/api/me/closure/confirm" in paths
-    assert not any(path.startswith("/api/admin/") for path in paths)
+    implemented_admin_paths = {
+        "/api/admin/me",
+        "/api/admin/dashboard",
+        "/api/admin/users",
+        "/api/admin/users/{user_id}",
+        "/api/admin/users/{user_id}/email",
+        "/api/admin/users/{user_id}/disable",
+        "/api/admin/users/{user_id}/restore",
+        "/api/admin/users/{user_id}/grant-admin",
+        "/api/admin/users/{user_id}/revoke-admin",
+        "/api/admin/users/{user_id}/quota-ledger",
+        "/api/admin/quota-adjustments",
+        "/api/admin/quota-adjustments/{adjustment_id}/reverse",
+        "/api/admin/trip-jobs",
+        "/api/admin/trip-jobs/{job_id}",
+        "/api/admin/trip-jobs/{job_id}/failed-draft",
+        "/api/admin/artifacts",
+        "/api/admin/artifacts/{artifact_id}",
+        "/api/admin/artifacts/{artifact_id}/download",
+        "/api/admin/invitation-batches",
+        "/api/admin/invitation-batches/{batch_id}",
+        "/api/admin/invitation-batches/{batch_id}/disable",
+        "/api/admin/invitation-codes/lookup",
+        "/api/admin/invitation-codes/{code_id}/disable",
+        "/api/admin/reports/trip-generation",
+        "/api/admin/reports/user-preferences",
+        "/api/admin/audit-events",
+    }
+    assert implemented_admin_paths <= paths.keys()
+    expected_admin_operations = {
+        ("get", "/api/admin/me"),
+        ("get", "/api/admin/dashboard"),
+        ("get", "/api/admin/users"),
+        ("get", "/api/admin/users/{user_id}"),
+        ("get", "/api/admin/users/{user_id}/email"),
+        ("post", "/api/admin/users/{user_id}/disable"),
+        ("post", "/api/admin/users/{user_id}/restore"),
+        ("post", "/api/admin/users/{user_id}/grant-admin"),
+        ("post", "/api/admin/users/{user_id}/revoke-admin"),
+        ("get", "/api/admin/users/{user_id}/quota-ledger"),
+        ("post", "/api/admin/quota-adjustments"),
+        ("post", "/api/admin/quota-adjustments/{adjustment_id}/reverse"),
+        ("get", "/api/admin/trip-jobs"),
+        ("get", "/api/admin/trip-jobs/{job_id}"),
+        ("get", "/api/admin/trip-jobs/{job_id}/failed-draft"),
+        ("get", "/api/admin/artifacts"),
+        ("get", "/api/admin/artifacts/{artifact_id}"),
+        ("get", "/api/admin/artifacts/{artifact_id}/download"),
+        ("get", "/api/admin/invitation-batches"),
+        ("post", "/api/admin/invitation-batches"),
+        ("get", "/api/admin/invitation-batches/{batch_id}"),
+        ("post", "/api/admin/invitation-batches/{batch_id}/disable"),
+        ("post", "/api/admin/invitation-codes/lookup"),
+        ("post", "/api/admin/invitation-codes/{code_id}/disable"),
+        ("get", "/api/admin/reports/trip-generation"),
+        ("get", "/api/admin/reports/user-preferences"),
+        ("get", "/api/admin/audit-events"),
+    }
+    actual_admin_operations = {
+        (method, path)
+        for path, operations in paths.items()
+        if path.startswith("/api/admin/")
+        for method in operations
+        if method in {"get", "post", "put", "patch", "delete"}
+    }
+    assert actual_admin_operations == expected_admin_operations
+    for method, path in expected_admin_operations:
+        operation = paths[path][method]
+        success_status = "201" if operation["responses"].get("201") else "200"
+        content = operation["responses"][success_status]["content"]
+        assert {"401", "403", "422"} <= operation["responses"].keys()
+        if path.endswith("/download"):
+            for media_type in ("application/pdf", "image/png"):
+                assert content[media_type]["schema"] == {
+                    "type": "string",
+                    "format": "binary",
+                }
+        else:
+            schema = content["application/json"]["schema"]
+            assert schema["$ref"].startswith("#/components/schemas/Admin")
+
+    mutation_operations = {
+        (method, path) for method, path in expected_admin_operations if method == "post"
+    }
+    for method, path in mutation_operations:
+        request_schema = paths[path][method]["requestBody"]["content"]["application/json"]["schema"]
+        assert request_schema["$ref"].startswith("#/components/schemas/")
+
+    trip_list = paths["/api/admin/trip-jobs"]["get"]
+    assert {parameter["name"] for parameter in trip_list["parameters"]} >= {
+        "time_from",
+        "time_to",
+        "city",
+        "status",
+        "result_type",
+        "error_code",
+        "detailed_reason",
+        "page",
+        "limit",
+    }
+    assert trip_list["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
+        "/AdminTripJobListResponse"
+    )
+    failed_draft = paths["/api/admin/trip-jobs/{job_id}/failed-draft"]["get"]
+    assert {"200", "401", "403", "404", "502", "503"} <= failed_draft["responses"].keys()
+    artifact_download = paths["/api/admin/artifacts/{artifact_id}/download"]["get"]
+    assert {"200", "401", "403", "404", "409", "410", "502", "503"} <= (
+        artifact_download["responses"].keys()
+    )
     assert not any("archive" in path for path in paths)
     assert "/api/me/trips/{trip_id}" not in paths
 

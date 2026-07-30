@@ -4,9 +4,9 @@
 之间，负责邀请制邮箱登录、服务端会话、攻略归属、公测生成额度、七天攻略
 历史，以及 `travel-admin` 所需的管理员接口和操作审计。
 
-当前状态：**v0.1 Documentation Accepted / Implementation Pending**
+当前状态：**v0.1 Implementation Complete / Acceptance Pending**
 
-当前执行状态：**J1 BFF SSE Repair Complete / Joint Retest Pending**。
+当前执行状态：**P4.0-P4.5 Complete / Deployment Pending**。
 v0.1 P0-P3 本地验收已通过；P4 等待 `travel-admin` A0 产品冻结。v0.2、
 兄弟仓库修改和部署仍是独立门禁。
 

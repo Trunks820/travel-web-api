@@ -19,6 +19,7 @@ def _settings(**overrides) -> Settings:
         "cookie_secure": False,
         "hermes_base_url": "http://127.0.0.1:6666",
         "hermes_internal_credential": "h" * 32,
+        "hermes_bff_internal_admin_credential": "a" * 32,
         "secret_hash_pepper": "s" * 32,
         "directmail_access_key_id": "",
         "directmail_access_key_secret": "",
@@ -70,9 +71,11 @@ def test_local_joint_guard_refuses_production() -> None:
         cookie_secure=True,
         hermes_base_url="http://127.0.0.1:6666",
         hermes_internal_credential="h" * 32,
+        hermes_bff_internal_admin_credential="a" * 32,
         secret_hash_pepper="s" * 32,
         directmail_access_key_id="local-id",
         directmail_access_key_secret="local-secret",
+        admin_owner_user_id="11111111-1111-1111-1111-111111111111",
     )
     with pytest.raises(LocalJointGuardError, match="production"):
         validate_local_joint_settings(

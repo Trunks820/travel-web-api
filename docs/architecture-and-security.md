@@ -1,6 +1,6 @@
 # Architecture and Security
 
-Status: **v0.1 Documentation Accepted / Implementation Pending**
+Status: **v0.1 Implementation Complete / Acceptance Pending**
 
 ## 1. Target Topology
 
@@ -40,6 +40,8 @@ to trusted internal clients. CORS is not an authentication boundary.
 - v0.2 Linux.do OAuth callback, admission, and explicit identity linking
 - session issuance and revocation
 - user and administrator role authorization
+- `OWNER` product-identity projection from one configured immutable
+  `app_user.id` while the database enum remains `USER`/`ADMIN`
 - CSRF/origin enforcement for cookie-authenticated mutations
 - user ownership checks
 - quota transactions
@@ -48,6 +50,8 @@ to trusted internal clients. CORS is not an authentication boundary.
 - upstream error normalization
 - SSE authorization and relay
 - administrator action auditing
+- Administrator UUID idempotency, signed quota adjustments, and stable
+  allowlisted operational reporting
 
 ### hermes-travel
 
@@ -153,6 +157,15 @@ Cookie-authenticated POST/PUT/PATCH/DELETE requests must:
 - use a CSRF token if a future flow cannot rely on strict same-origin requests
 - enforce endpoint-specific idempotency
 
+Every `/api/admin/*` mutation additionally requires a client UUID
+`idempotency_key`, scoped by `(actor_user_id, idempotency_key)`. Authentication
+and current capability checks happen before replay lookup. Same key plus the
+same canonical request returns the original result; same key plus a different
+request returns `409 IDEMPOTENCY_CONFLICT`. Concurrent duplicates may commit
+one business change only. Successful deduplication facts are retained
+permanently; validation or authorization failures before execution do not
+consume the key.
+
 ## 6. Upstream Identity and Privacy
 
 The BFF sends only opaque, generation-relevant identifiers upstream:
@@ -183,10 +196,10 @@ secret, access token, or raw profile.
 
 ## 7. Account Closure and Content Archive
 
-Account Closure is distinct from logout and suspension:
+Account Closure is distinct from logout and disablement:
 
 - logout revokes one session
-- suspension blocks access while retaining the User relationship
+- disablement blocks access while retaining the User relationship
 - Account Closure deletes identities and sessions and prevents future login
 - Trip Attempts remain as de-identified Content Archive records
 - owner references and other reversible identity mappings are removed
@@ -214,7 +227,7 @@ that are still within the seven-day user-visible window.
 | Create/download artifact | 401 | Allowed | 404 | Admin projection only |
 | Place list/detail | Authenticated only | Allowed | Allowed | Allowed |
 | Own history | 401 | Allowed | Cannot request another user | Uses admin API |
-| `/api/admin/*` | 401 | 403 | 403 | Allowed by endpoint policy |
+| `/api/admin/*` | 401 | 403 | 403 | Allowed by ADMIN/OWNER capability |
 
 Use 404 rather than 403 for another user's object to avoid confirming its
 existence.
@@ -224,11 +237,20 @@ arbitrary table, or unrestricted proxy endpoint. Every mutation records the
 Administrator, target, action, stable reason, timestamp, and correlation id.
 
 The first Administrator is a normally registered, email-verified User promoted
-by a reviewed PostgreSQL transaction executed by the server operator on the
+by a controlled bootstrap transaction executed by the server operator on the
 private server. The transaction updates the existing User rather than
-inserting a parallel identity, revokes existing sessions, and writes a
-`SYSTEM_BOOTSTRAP` audit event. This narrow deployment/emergency procedure
-does not authorize browser database access or a public role-management API.
+inserting a parallel identity, revokes existing sessions, writes a
+`SYSTEM_BOOTSTRAP` audit event, and installs that immutable `app_user.id` as
+the configured OWNER identity. Email never determines OWNER.
+
+OWNER and ADMIN are capability projections, not a new RBAC system. OWNER may
+grant/revoke the `ADMIN` database role and may operate on any existing account,
+including self. ADMIN cannot grant/revoke roles and cannot disable or adjust
+quota for self, another ADMIN, or OWNER. The final configured OWNER identity is
+protected. Disablement revokes existing sessions immediately; restoration
+never restores old sessions. No v0.1 action requires recent re-authentication,
+MFA, or a second confirmation protocol, but explicit reason, idempotency,
+authorization, atomicity, and audit remain mandatory.
 
 `travel-admin` is not an ordinary-User surface and is never linked from the
 User account area as a profile/history destination. Ordinary User login, quota,
@@ -244,7 +266,13 @@ Defense in depth:
 2. Public Nginx routes terminate at `travel-web-api`.
 3. BFF-to-Hermes calls carry a rotatable internal credential.
 4. Hermes validates the credential on BFF-owned public generation endpoints.
-5. Internal crawl/city administration retains a separate administrator
+5. The Administrator projection for global jobs, steps, failed Writer drafts,
+   structured results, and Artifacts uses the accepted Hermes P4.4-H1
+   `/internal/v1/admin/*` service-authenticated HTTP allowlist with a credential
+   separate from ordinary generation calls.
+6. The BFF validates the v1 envelope and request-id binding, and never reads
+   Hermes PostgreSQL/MySQL directly.
+7. Internal crawl/city administration retains a separate administrator
    credential and is never proxied by the BFF.
 
 The internal credential design is an explicitly scoped integration change and
@@ -274,6 +302,8 @@ Allowed structured fields:
 - endpoint, status, latency
 - quota transition and stable reason code
 - upstream status/error category
+- Administrator action code, redacted target type/id, result/error code,
+  request id, and irreversible source-IP digest
 
 Never log:
 
@@ -283,6 +313,15 @@ Never log:
 - email or phone by default
 - identity-provider tokens
 - full free-text trip notes at info level
+- raw Invitation codes, full email reveals, failed Writer drafts, prompts,
+  artifact bytes/storage paths, SQL, or unredacted stack traces
+
+`admin_audit_log` is permanent and append-only. It records the actor's
+then-current OWNER/ADMIN product identity, action, redacted target and
+before/after projection, result/error code, reason, idempotency key, request
+id, server timestamp, irreversible source-IP digest, and bounded client
+metadata. Full-email reveal, failed-draft inspection, full Invitation lookup,
+and Artifact download are audited reads and return `Cache-Control: no-store`.
 
 Required metrics:
 

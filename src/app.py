@@ -6,6 +6,8 @@ from fastapi import APIRouter, FastAPI, Request
 from sqlalchemy import text
 
 from src.account.router import router as account_router
+from src.admin.hermes_router import router as admin_hermes_router
+from src.admin.router import router as admin_router
 from src.api.errors import ApiError, install_error_handlers
 from src.auth.mailer import DirectMailOtpMailer
 from src.auth.router import router as auth_router
@@ -81,6 +83,8 @@ def create_app(
     app.include_router(trips_router)
     app.include_router(history_router)
     app.include_router(account_router)
+    app.include_router(admin_router)
+    app.include_router(admin_hermes_router)
     return app
 
 

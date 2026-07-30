@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -8,6 +9,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import Settings
 from src.db.models import Invitation
 from src.security.secrets import hash_secret, new_opaque_id
+
+SHORT_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
+
+
+def normalize_invitation_code(raw_secret: str) -> str:
+    trimmed = raw_secret.strip()
+    return trimmed.upper() if trimmed.casefold().startswith("yt-") else trimmed
+
+
+def new_short_invitation_code() -> str:
+    first = "".join(secrets.choice(SHORT_CODE_ALPHABET) for _ in range(4))
+    second = "".join(secrets.choice(SHORT_CODE_ALPHABET) for _ in range(4))
+    return f"YT-{first}-{second}"
 
 
 def invitation_is_usable(invitation: Invitation, now: datetime) -> bool:
@@ -26,7 +40,7 @@ async def find_invitation(
     for_update: bool = False,
 ) -> Invitation | None:
     secret_hash = hash_secret(
-        raw_secret,
+        normalize_invitation_code(raw_secret),
         purpose="invitation",
         pepper=settings.secret_hash_pepper.get_secret_value(),
     )

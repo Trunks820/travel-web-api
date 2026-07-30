@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -12,6 +13,11 @@ from src.app import create_app
 from src.auth.mailer import EmailDeliveryError
 from src.config import Settings
 from src.integrations.hermes_models import (
+    HermesAdminArtifactDetail,
+    HermesAdminArtifactList,
+    HermesAdminFailedDraftDetail,
+    HermesAdminTripJobDetail,
+    HermesAdminTripJobList,
     HermesArtifact,
     HermesJobStatus,
     HermesPlaceDetail,
@@ -35,9 +41,166 @@ class FakeHermes:
         self.status_error: Exception | None = None
         self.stream_error: Exception | None = None
         self.stream_events: dict[str, list[tuple[str, dict]]] = {}
+        self.admin_calls: list[tuple[str, object]] = []
+        self.admin_error: Exception | None = None
+        self.admin_download_error: Exception | None = None
+        now = datetime.now(UTC)
+        self.admin_job_item = {
+            "job_id": "hermes-admin-job-1",
+            "result_record_id": "9001",
+            "status": "FAILED",
+            "current_stage": "FAILED",
+            "city": "重庆",
+            "result_type": None,
+            "safe_error": {
+                "code": "PUBLISH_GATE_FAILED",
+                "message": "攻略未通过发布校验",
+            },
+            "detailed_reason": "publish_gate_failed",
+            "created_at": now - timedelta(seconds=181),
+            "started_at": now - timedelta(seconds=180),
+            "finished_at": now,
+            "total_duration_ms": 181_000,
+            "retry_count": 1,
+            "failed_draft_available": True,
+            "steps": [
+                {
+                    "stage": "FINAL_WRITER",
+                    "status": "SUCCESS",
+                    "attempt": 1,
+                    "publish_retry_round": 0,
+                    "started_at": now - timedelta(seconds=2),
+                    "finished_at": now - timedelta(seconds=1),
+                    "duration_ms": 1_000,
+                }
+            ],
+        }
+        self.admin_failed_draft_payload = {
+            "job_id": "hermes-admin-job-1",
+            "created_at": now,
+            "plans": [
+                {
+                    "plan_name": "诊断草稿",
+                    "summary": "安全摘要",
+                    "plan_text": "未发布安全正文",
+                    "used_place_names": ["地点A"],
+                    "day_place_names": [["地点A"]],
+                }
+            ],
+        }
+        self.admin_artifact_item = {
+            "artifact_id": "artifact-admin-1",
+            "result_record_id": "9001",
+            "artifact_type": "pdf",
+            "status": "READY",
+            "filename": "重庆攻略.pdf",
+            "mime_type": "application/pdf",
+            "byte_size": 9,
+            "sha256": "abc",
+            "text_length": 10,
+            "width_px": None,
+            "height_px": None,
+            "page_count": 1,
+            "attempt_count": 1,
+            "safe_error": None,
+            "created_at": now,
+            "started_at": now,
+            "finished_at": now,
+            "expires_at": now + timedelta(days=1),
+        }
+        self.admin_download = (b"%PDF-safe", "application/pdf")
 
     async def readiness(self, _correlation_id: str) -> None:
         return None
+
+    def _raise_admin_error(self) -> None:
+        if self.admin_error:
+            raise self.admin_error
+
+    async def admin_trip_jobs(self, *, correlation_id: str, params: dict):
+        self._raise_admin_error()
+        self.admin_calls.append(("trip_jobs", dict(params)))
+        return HermesAdminTripJobList.model_validate(
+            {
+                "ok": True,
+                "contract_version": "v1",
+                "request_id": correlation_id,
+                "page": params["page"],
+                "limit": params["limit"],
+                "total": 1,
+                "items": [self.admin_job_item],
+            }
+        )
+
+    async def admin_trip_job(self, job_id: str, *, correlation_id: str):
+        self._raise_admin_error()
+        self.admin_calls.append(("trip_job", job_id))
+        return HermesAdminTripJobDetail.model_validate(
+            {
+                "ok": True,
+                "contract_version": "v1",
+                "request_id": correlation_id,
+                "trip_job": {**self.admin_job_item, "job_id": job_id},
+            }
+        )
+
+    async def admin_failed_draft(self, job_id: str, *, correlation_id: str):
+        self._raise_admin_error()
+        self.admin_calls.append(("failed_draft", job_id))
+        return HermesAdminFailedDraftDetail.model_validate(
+            {
+                "ok": True,
+                "contract_version": "v1",
+                "request_id": correlation_id,
+                "failed_draft": {
+                    **self.admin_failed_draft_payload,
+                    "job_id": job_id,
+                },
+            }
+        )
+
+    async def admin_artifacts(self, *, correlation_id: str, params: dict):
+        self._raise_admin_error()
+        self.admin_calls.append(("artifacts", dict(params)))
+        return HermesAdminArtifactList.model_validate(
+            {
+                "ok": True,
+                "contract_version": "v1",
+                "request_id": correlation_id,
+                "page": params["page"],
+                "limit": params["limit"],
+                "total": 1,
+                "items": [self.admin_artifact_item],
+            }
+        )
+
+    async def admin_artifact(self, artifact_id: str, *, correlation_id: str):
+        self._raise_admin_error()
+        self.admin_calls.append(("artifact", artifact_id))
+        return HermesAdminArtifactDetail.model_validate(
+            {
+                "ok": True,
+                "contract_version": "v1",
+                "request_id": correlation_id,
+                "artifact": {
+                    **self.admin_artifact_item,
+                    "artifact_id": artifact_id,
+                },
+            }
+        )
+
+    async def admin_artifact_bytes(
+        self,
+        artifact_id: str,
+        *,
+        correlation_id: str,
+        max_bytes: int,
+    ):
+        del correlation_id, max_bytes
+        self.admin_calls.append(("artifact_download", artifact_id))
+        if self.admin_download_error:
+            raise self.admin_download_error
+        return self.admin_download
 
     async def create_trip(
         self,
@@ -232,9 +395,10 @@ async def clean_database(pg_engine):
         await connection.execute(
             text(
                 "TRUNCATE TABLE "
+                "admin_audit_log, quota_adjustment, admin_idempotency, "
                 "trip_quota_entry, user_trip, "
                 "email_otp_challenge, invitation_redemption, user_session, "
-                "quota_grant, user_identity, invitation, app_user "
+                "quota_grant, user_identity, invitation, invitation_batch, app_user "
                 "RESTART IDENTITY CASCADE"
             )
         )
@@ -248,6 +412,7 @@ def test_settings() -> Settings:
         database_url=os.environ["TEST_DATABASE_URL"],
         secret_hash_pepper="integration-test-pepper",
         hermes_internal_credential="integration-hermes-secret",
+        hermes_bff_internal_admin_credential="integration-admin-hermes-secret",
         cookie_secure=True,
         user_origin="https://kakarot8.com",
         admin_origin="https://admin.kakarot8.com",

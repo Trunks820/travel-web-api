@@ -3,14 +3,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from src.admin.audit import admin_subject_hash
 from src.config import Settings
 from src.db.models import (
+    AdminAuditLog,
+    AdminIdempotency,
     AppUser,
     EmailOtpChallenge,
+    InvitationBatch,
     InvitationRedemption,
+    QuotaAdjustment,
     QuotaGrant,
     TripQuotaEntry,
     UserIdentity,
@@ -91,6 +96,8 @@ async def close_account(
             if active is not None:
                 outcome = "ACTIVE_TRIP_IN_PROGRESS"
             else:
+                subject_hash = admin_subject_hash(user.id, settings)
+                public_user_id = user.public_id
                 trips = list(
                     (
                         await session.scalars(
@@ -125,6 +132,37 @@ async def close_account(
                     )
                 )
                 await session.execute(delete(UserIdentity).where(UserIdentity.user_id == user_id))
+                await session.execute(text("SET LOCAL travel_web.account_closure = 'on'"))
+                await session.execute(
+                    update(AdminIdempotency)
+                    .where(AdminIdempotency.actor_user_id == user_id)
+                    .values(actor_user_id=None)
+                )
+                await session.execute(
+                    update(QuotaAdjustment)
+                    .where(QuotaAdjustment.target_user_id == user_id)
+                    .values(target_user_id=None, target_scope_hash=subject_hash)
+                )
+                await session.execute(
+                    update(QuotaAdjustment)
+                    .where(QuotaAdjustment.actor_user_id == user_id)
+                    .values(actor_user_id=None, actor_scope_hash=subject_hash)
+                )
+                await session.execute(
+                    update(InvitationBatch)
+                    .where(InvitationBatch.created_by_user_id == user_id)
+                    .values(created_by_user_id=None, creator_scope_hash=subject_hash)
+                )
+                await session.execute(
+                    update(AdminAuditLog)
+                    .where(AdminAuditLog.actor_user_id == user_id)
+                    .values(actor_user_id=None)
+                )
+                await session.execute(
+                    update(AdminAuditLog)
+                    .where(AdminAuditLog.target_id == public_user_id)
+                    .values(target_id=None)
+                )
                 await session.delete(user)
                 outcome = "SUCCESS"
     return ClosureResult(outcome)

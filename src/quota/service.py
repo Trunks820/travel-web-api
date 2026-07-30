@@ -8,7 +8,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.config import Settings
-from src.db.models import AppUser, QuotaGrant, TripQuotaEntry, UserTrip
+from src.db.models import AppUser, QuotaAdjustment, QuotaGrant, TripQuotaEntry, UserTrip
 from src.security.secrets import new_opaque_id
 
 ACTIVE_TRIP_STATUSES = ("SUBMITTING", "PENDING", "RUNNING")
@@ -79,6 +79,14 @@ async def quota_snapshot(session: AsyncSession, user_id: uuid.UUID) -> QuotaSnap
         )
         or 0
     )
+    adjusted = int(
+        await session.scalar(
+            select(func.coalesce(func.sum(QuotaAdjustment.delta), 0)).where(
+                QuotaAdjustment.target_user_id == user_id
+            )
+        )
+        or 0
+    )
     rows = (
         await session.execute(
             select(
@@ -96,7 +104,7 @@ async def quota_snapshot(session: AsyncSession, user_id: uuid.UUID) -> QuotaSnap
     ).all()
     by_status = {status: int(units) for status, units in rows}
     return QuotaSnapshot(
-        limit=granted,
+        limit=granted + adjusted,
         reserved=by_status.get("RESERVED", 0),
         consumed=by_status.get("CONSUMED", 0),
     )

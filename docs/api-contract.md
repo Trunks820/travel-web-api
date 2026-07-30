@@ -1,6 +1,6 @@
 # API Contract
 
-Status: **v0.1 Documentation Accepted / Implementation Pending**
+Status: **v0.1 Implementation Complete / Acceptance Pending**
 
 ## 1. Conventions
 
@@ -413,31 +413,235 @@ to authorized internal Content Archive inspection.
 
 ## 8. Administrator API
 
-All endpoints under `/api/admin/*` require an active Administrator session.
-Non-administrator sessions receive `403 ADMIN_REQUIRED`.
+All endpoints under `/api/admin/*` require an active ADMIN or OWNER product
+identity. Visitor requests receive `401 AUTH_REQUIRED`; an active ordinary
+USER receives `403 ADMIN_REQUIRED`. The database role enum remains
+`USER`/`ADMIN`; OWNER is projected only when the authenticated
+`app_user.id` equals the immutable configured OWNER id.
 
-Initial resource groups:
+Every response includes the middleware-generated `request_id`. Aggregate
+responses also include server-computed `as_of`. Every list uses server-side
+pagination, stable `(sort_field, public_id)` ordering, and explicit filter and
+sort allowlists. No endpoint accepts a table name, column name, SQL fragment,
+generic query definition, arbitrary BI expression, or storage path.
+
+### 8.1 Administrator identity
 
 ```text
-GET  /api/admin/dashboard
-GET  /api/admin/users
-POST /api/admin/users/{user_id}/quota-grants
-POST /api/admin/users/{user_id}/suspend
-POST /api/admin/users/{user_id}/restore
-GET  /api/admin/trips
-GET  /api/admin/invitations
-POST /api/admin/invitation-batches
-POST /api/admin/invitations/{invitation_id}/disable
-GET  /api/admin/audit-logs
+GET /api/admin/me
 ```
 
-Administrator mutations require a stable reason and an idempotency key. There
-is no generic SQL endpoint and no endpoint that accepts a raw table name,
-column name, or query fragment.
+Returns the authenticated User projection, `product_identity` (`ADMIN` or
+`OWNER`), and explicit capabilities. Capabilities, rather than frontend hiding,
+govern every mutation:
 
-`POST /api/admin/invitation-batches` creates a bounded number of independently
-redeemable, single-use Invitations with one source label and optional expiry.
-It never creates a shared redeemable campaign code.
+- OWNER may grant/revoke ADMIN and operate on every existing account,
+  including self.
+- ADMIN cannot grant/revoke ADMIN and cannot disable, restore, or adjust quota
+  for self, another ADMIN, or OWNER.
+- The configured final OWNER identity is protected.
+
+### 8.2 Dashboard
+
+```text
+GET /api/admin/dashboard
+```
+
+Returns:
+
+- total, ACTIVE, DISABLED, zero-available-quota, and last-seven-day new Users
+- last-24-hour SUCCESS, FAILED, TIMEOUT, REJECTED, and processing Trip counts
+- terminal success rate:
+  `SUCCESS / (SUCCESS + FAILED + TIMEOUT + REJECTED)`
+- active-unused, expiring-soon, and disabled Invitation counts
+- recent operational exceptions
+
+A zero terminal denominator returns `null` plus `not_applicable=true`; it never
+returns a misleading `0%`.
+
+### 8.3 Users and roles
+
+```text
+GET  /api/admin/users
+GET  /api/admin/users/{user_id}
+GET  /api/admin/users/{user_id}/email
+POST /api/admin/users/{user_id}/disable
+POST /api/admin/users/{user_id}/restore
+POST /api/admin/users/{user_id}/grant-admin
+POST /api/admin/users/{user_id}/revoke-admin
+```
+
+`GET /users` masks email. `q` is trimmed, case-insensitive contains search over
+email, public User id, Invitation source, and batch name, requires at least two
+characters, and never turns role/status/time filters into fuzzy search.
+Structured role, status, and time filters are exact allowlisted values.
+
+`GET /users/{user_id}/email` returns the full email only to ADMIN/OWNER, is
+audited, and sets `Cache-Control: no-store`. The email never appears in list
+rows, audit payloads, URLs, or bulk export.
+
+Disable/restore requires `reason` and UUID `idempotency_key`. Disablement
+revokes all current sessions in the same transaction. Restoration creates no
+session and does not change role, quota, history, or already-running Trip
+Attempts. v0.1 does not forcibly cancel an already-running Trip.
+
+Role grant/revoke is OWNER-only, revokes all target sessions, is audited, and
+protects the configured final OWNER identity. The first OWNER remains a
+controlled `SYSTEM_BOOTSTRAP`, not a browser-created account.
+
+### 8.4 Signed quota adjustments
+
+```text
+GET  /api/admin/users/{user_id}/quota-ledger
+POST /api/admin/quota-adjustments
+POST /api/admin/quota-adjustments/{adjustment_id}/reverse
+```
+
+Adjustment request fields are `target_user_id`, non-zero signed `delta`,
+allowlisted `reason`, optional bounded `note`, and UUID `idempotency_key`.
+Positive delta adds availability; negative delta subtracts it. A negative
+adjustment whose atomic post-change available balance would be below zero is
+rejected in full with `409 QUOTA_BALANCE_INSUFFICIENT`; it is never clamped.
+ACTIVE and DISABLED targets are eligible, but missing, closed, or
+de-identified identities are not.
+
+The immutable response/ledger projection contains `adjustment_id`, `delta`,
+`before`, `after`, `reason`, bounded note, actor, target, idempotency key,
+reversal linkage, and creation time. A mistake is corrected only by one linked
+reverse entry. The original and reversal are never updated or deleted.
+Existing positive `quota_grant` and Trip reservation/settlement behavior remain
+valid and retain their balances.
+
+### 8.5 Invitation batches and codes
+
+```text
+GET  /api/admin/invitation-batches
+POST /api/admin/invitation-batches
+GET  /api/admin/invitation-batches/{batch_id}
+POST /api/admin/invitation-batches/{batch_id}/disable
+POST /api/admin/invitation-codes/lookup
+POST /api/admin/invitation-codes/{code_id}/disable
+```
+
+Batch creation accepts `count` (1-200, default 50), `valid_days` (1-90,
+default 30), a bounded source label/name, `reason`, and UUID
+`idempotency_key`. Each independently single-use code is generated with a
+cryptographically secure source in the exact uppercase format
+`YT-XXXX-XXXX`, excluding ambiguous characters such as `0/O` and `1/I/L`.
+Redemption trims surrounding whitespace and compares case-insensitively.
+
+Only a keyed server HMAC is stored. Raw codes are returned exactly once in the
+first successful creation response. Repeating the same idempotent request
+returns the original batch projection with `codes_disclosed=false`; it never
+re-displays secrets or creates another batch. A lost response has no recovery
+endpoint. Subsequent detail uses sequence labels such as `#001`, status, and
+redemption metadata only.
+
+OWNER and ADMIN may create or irreversibly disable one code or a whole batch.
+Disablement never rolls back a redeemed account. Codes cannot be restored,
+edited, deleted, or re-displayed. Lookup accepts the full code only in the JSON
+body and resolves the HMAC record; raw input is excluded from URL, logs,
+traces, audit bodies, and errors. `ACTIVE`, `EXPIRED`, `DISABLED`, and
+`EXHAUSTED` remain distinct.
+
+Existing Invitation/redemption rows remain compatible. New v0.1 short codes
+may not be permanent.
+
+### 8.6 Trip jobs, failure drafts, and Artifacts
+
+```text
+GET /api/admin/trip-jobs
+GET /api/admin/trip-jobs/{job_id}
+GET /api/admin/trip-jobs/{job_id}/failed-draft
+GET /api/admin/artifacts
+GET /api/admin/artifacts/{artifact_id}
+GET /api/admin/artifacts/{artifact_id}/download
+```
+
+Trip jobs default to the last seven days and may filter the permanent archive
+by allowlisted time, city, status, `result_type`, `error_code`, and detailed
+reason. PENDING/RUNNING is slow after 180 seconds from creation but is not
+rewritten to TIMEOUT. FAILED and TIMEOUT are exceptions. SUCCESS with
+`NO_CANDIDATES`/`NO_USABLE_ROUTE` is a degraded business exception.
+`CITY_CLARIFICATION_REQUIRED` REJECTED is excluded from the Dashboard
+exception feed; `CITY_PREPARING`, `CITY_COLLECTION_FAILED`,
+`CITY_DATA_INSUFFICIENT`, and `CITY_DISABLED` are included. Projections include
+current stage, safe error/reason, stage durations, total duration, and retry
+count.
+
+A failed Writer draft exists only when Writer produced content before the
+terminal failure. It is permanent, marked unpublished diagnostic content, and
+may not be published, forced successful, shared, exported, converted to an
+Artifact, or deleted. Viewing is audited and `no-store`; system prompts,
+secrets, raw provider payloads, and unredacted stack traces are excluded.
+
+Admin Artifacts are read-only and limited to types `pdf` and `share_image`.
+Only existing READY files are downloadable. Expired binary retention is
+reported as `EXPIRED`, not disguised as a network 404. The BFF does not create
+an Administrator generation/retry/delete endpoint or a second rendering,
+cache, quota, metadata, or binary source of truth. Download is authenticated,
+audited, `no-store`, and never exposes the storage path. Job,
+`result_record_id`, and `artifact_id` projections cross-link opaquely.
+
+These routes use the accepted Hermes P4.4-H1
+`/internal/v1/admin/*` HTTP contract for global jobs, steps, failed drafts,
+structured results, and Artifact metadata/binary access. BFF calls carry the
+dedicated `HERMES_BFF_INTERNAL_ADMIN_CREDENTIAL`, validate the v1 envelope and
+matching request id, and translate only allowlisted business error codes.
+Direct Hermes database access remains forbidden.
+
+### 8.7 Reports
+
+```text
+GET /api/admin/reports/trip-generation
+GET /api/admin/reports/user-preferences
+```
+
+Trip generation supports allowlisted time/city filters and drill-down
+conditions. It returns terminal volume trend; terminal success rate; valid
+guide rate `(SUCCESS with PLAN_READY) / all terminal`; shares of
+`NO_CANDIDATES` and `NO_USABLE_ROUTE`; distributions by status/error/detailed
+reason; total and main-stage P50/P95; and count/share over 180 seconds. Every
+zero denominator is explicitly not applicable.
+
+Preference insights aggregate only persisted structured request fields: city,
+days, people count, budget band, preferences, pace, avoid, commute mode, time
+preferences, accommodation completion, and `must_include` (canonical place
+first). One multi-select value counts once per request. Responses include
+selected-request count and share; multi-select shares may sum above 100%.
+Distinct-user counts are aggregate-only and cannot drill down. De-identified
+rows contribute only request-level aggregates. Free choices and must-include
+places seen fewer than three times roll into `OTHER`. Raw notes, email,
+prompts, and Writer text are never analyzed.
+
+### 8.8 Audit events
+
+```text
+GET /api/admin/audit-events
+```
+
+The permanent append-only projection is visible to OWNER and ADMIN and has no
+bulk export. It includes audit id, actor and then-current product identity,
+action, redacted target, result/error code, redacted before/after, reason,
+idempotency key, request id, server timestamp, irreversible source-IP digest,
+and bounded client metadata.
+
+Audited events include role changes and denied logins; disable/restore; quota
+add/subtract/reverse; batch/code creation or disablement; full-email reveal;
+failed-draft view; full-code lookup; Artifact download; and every successful or
+failed Administrator write. Audit data excludes raw Invitation codes, full
+emails, prompts, Writer/draft bodies, tokens, Artifact bytes, SQL, stack traces,
+and raw provider responses.
+
+### 8.9 Administrator write idempotency
+
+Every Administrator write request includes a client UUID `idempotency_key`,
+scoped by `(actor_user_id, idempotency_key)`. Authentication and current
+capability checks run before replay. Same key plus the same canonical request
+returns the first result; same key plus a different request returns
+`409 IDEMPOTENCY_CONFLICT`. Concurrent duplicates commit one business change.
+Successful deduplication facts are permanent. Validation or authorization
+failure before execution does not consume the key.
 
 ## 9. Stable Error Codes
 
@@ -447,12 +651,18 @@ It never creates a shared redeemable campaign code.
 | 401 | `AUTH_REQUIRED` | no valid session |
 | 401 | `SESSION_EXPIRED` | known but expired session |
 | 403 | `ADMIN_REQUIRED` | active session lacks administrator role |
+| 403 | `OWNER_REQUIRED` | action requires the configured OWNER identity |
 | 404 | `TRIP_NOT_FOUND` | unknown or not owned |
+| 404 | `ADMIN_RESOURCE_NOT_FOUND` | allowlisted Administrator resource is absent |
 | 409 | `REGISTRATION_REQUIRED` | verified email is not registered for login mode |
 | 409 | `LOGIN_REQUIRED` | verified email already belongs to a User |
 | 409 | `ACTIVE_TRIP_IN_PROGRESS` | account closure must wait for a non-terminal trip |
 | 409 | `ACTIVE_TRIP_EXISTS` | another non-terminal Trip Attempt already belongs to the User |
 | 409 | `REQUEST_ID_CONFLICT` | idempotency key reused with different input |
+| 409 | `IDEMPOTENCY_CONFLICT` | Administrator key reused with a different canonical request |
+| 409 | `QUOTA_BALANCE_INSUFFICIENT` | signed deduction would make available balance negative |
+| 409 | `LAST_OWNER_PROTECTED` | action would remove the final configured OWNER capability |
+| 409 | `ADJUSTMENT_ALREADY_REVERSED` | quota adjustment already has a reversal |
 | 422 | `VALIDATION_ERROR` | valid JSON but invalid fields |
 | 422 | `CITY_NOT_SUPPORTED` | requested city is outside the current supported set |
 | 429 | `QUOTA_EXHAUSTED` | no generation units available |

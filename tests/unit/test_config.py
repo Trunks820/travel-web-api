@@ -15,6 +15,7 @@ def test_production_requires_secure_https_cookie_origins() -> None:
             app_env="production",
             database_url="postgresql+asyncpg://user:strong@db/travel_web",
             hermes_internal_credential="strong-hermes-secret",
+            hermes_bff_internal_admin_credential="strong-hermes-admin-secret",
             secret_hash_pepper="strong-hash-pepper",
             directmail_access_key_id="access-key-id",
             directmail_access_key_secret="access-key-secret",

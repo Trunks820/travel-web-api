@@ -61,6 +61,7 @@ values in `.env.example`, source control, chat, or screenshots.
 ```powershell
 $pepperBytes = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32)
 $hermesBytes = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32)
+$hermesAdminBytes = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32)
 
 $env:LOCAL_JOINT_MODE = "1"
 $env:APP_ENV = "development"
@@ -73,6 +74,7 @@ $env:HERMES_BASE_URL = "http://127.0.0.1:6666"
 $env:HERMES_READ_TIMEOUT_SECONDS = "90"
 $env:SECRET_HASH_PEPPER = [Convert]::ToHexString($pepperBytes).ToLowerInvariant()
 $env:HERMES_INTERNAL_CREDENTIAL = [Convert]::ToHexString($hermesBytes).ToLowerInvariant()
+$env:HERMES_BFF_INTERNAL_ADMIN_CREDENTIAL = [Convert]::ToHexString($hermesAdminBytes).ToLowerInvariant()
 $env:DIRECTMAIL_ACCESS_KEY_ID = ""
 $env:DIRECTMAIL_ACCESS_KEY_SECRET = ""
 ```
@@ -88,7 +90,8 @@ The local harness refuses to start unless:
 - the Hermes read timeout is at least 45 seconds, leaving three keepalive
   intervals of margin over Hermes's 15-second SSE keepalive; the recommended
   local and production default is 90 seconds
-- both local secrets are generated values of at least 32 characters
+- all local secrets are independently generated values of at least 32
+  characters
 - DirectMail credentials are empty
 
 It fails closed for `APP_ENV=production`.

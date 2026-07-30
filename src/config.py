@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from functools import lru_cache
 from typing import Literal
 
@@ -21,6 +22,7 @@ class Settings(BaseSettings):
 
     hermes_base_url: str = "http://127.0.0.1:6666"
     hermes_internal_credential: SecretStr = SecretStr("replace-me")
+    hermes_bff_internal_admin_credential: SecretStr = SecretStr("replace-me")
     hermes_connect_timeout_seconds: float = 3.0
     hermes_read_timeout_seconds: float = 90.0
     hermes_write_timeout_seconds: float = 10.0
@@ -41,6 +43,7 @@ class Settings(BaseSettings):
     session_last_seen_write_seconds: int = 3_600
     user_origin: str = "https://kakarot8.com"
     admin_origin: str = "https://admin.kakarot8.com"
+    admin_owner_user_id: uuid.UUID | None = None
     request_max_bytes: int = 65_536
 
     otp_code_digits: int = 6
@@ -66,6 +69,7 @@ class Settings(BaseSettings):
     def redaction_secrets(self) -> tuple[str, ...]:
         values = (
             self.hermes_internal_credential.get_secret_value(),
+            self.hermes_bff_internal_admin_credential.get_secret_value(),
             self.secret_hash_pepper.get_secret_value(),
             self.directmail_access_key_id.get_secret_value(),
             self.directmail_access_key_secret.get_secret_value(),
@@ -99,9 +103,13 @@ class Settings(BaseSettings):
         required = {
             "DATABASE_URL": self.database_url,
             "HERMES_INTERNAL_CREDENTIAL": self.hermes_internal_credential.get_secret_value(),
+            "HERMES_BFF_INTERNAL_ADMIN_CREDENTIAL": (
+                self.hermes_bff_internal_admin_credential.get_secret_value()
+            ),
             "SECRET_HASH_PEPPER": self.secret_hash_pepper.get_secret_value(),
             "DIRECTMAIL_ACCESS_KEY_ID": self.directmail_access_key_id.get_secret_value(),
             "DIRECTMAIL_ACCESS_KEY_SECRET": self.directmail_access_key_secret.get_secret_value(),
+            "ADMIN_OWNER_USER_ID": str(self.admin_owner_user_id or ""),
         }
         unsafe = [
             name

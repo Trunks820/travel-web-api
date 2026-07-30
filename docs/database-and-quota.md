@@ -1,6 +1,6 @@
 # Database and Quota
 
-Status: **v0.1 Documentation Accepted / Implementation Pending**
+Status: **v0.1 Implementation Complete / Acceptance Pending**
 
 ## 1. Database Boundary
 
@@ -66,9 +66,13 @@ bounded attempt and send counters. Raw codes are never persisted.
 
 ### 2.4 `invitation`
 
-Stores a hashed single-use invitation secret, batch/source reference, optional
-expiry, disabled state, redeemed timestamp, and timestamps. It has no
-multi-redemption counter.
+Stores one single-use Invitation code with a keyed HMAC digest, nullable batch
+reference for legacy compatibility, per-batch sequence number, source,
+required expiry for new short codes, disabled state, redeemed timestamp, and
+timestamps. It has no multi-redemption counter. New codes use exact
+`YT-XXXX-XXXX` syntax and never store plaintext or reversible ciphertext.
+Existing redeemed legacy rows remain valid and keep their registration audit
+history.
 
 ### 2.5 `invitation_redemption`
 
@@ -173,29 +177,113 @@ Stores initial and Administrator-issued generation credits. Every
 Administrator grant records the actor, target User, units, stable reason, and
 idempotency key.
 
-### 2.10 `admin_audit_log`
+Existing rows remain the positive baseline source. P4 does not rewrite or
+recalculate them and does not change existing User balances.
 
-Append-only record of Administrator mutations. It stores opaque actor and
-target identifiers, action, stable reason, correlation id, and a redacted
-before/after projection.
+### 2.10 `invitation_batch`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID PK | internal id |
+| `public_id` | TEXT UNIQUE | opaque `batch_id` |
+| `name` | TEXT | bounded operator label |
+| `source_label` | TEXT | registration attribution |
+| `code_count` | SMALLINT | 1-200 |
+| `valid_days` | SMALLINT | 1-90 |
+| `expires_at` | TIMESTAMPTZ | required for new codes |
+| `disabled_at` | TIMESTAMPTZ NULL | irreversible whole-batch disable |
+| `created_by_user_id` | UUID NULL FK | de-identified on Account Closure |
+| `created_at` | TIMESTAMPTZ | |
+
+Raw codes never enter this table. A unique `(batch_id, sequence_number)` on
+`invitation` supplies stable `#001` projections. HMAC digest uniqueness rejects
+collisions; generation retries with a new cryptographically secure value.
+
+### 2.11 `admin_idempotency`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID PK | |
+| `actor_user_id` | UUID NULL FK | current actor; null after identity erasure |
+| `actor_scope_id` | TEXT | irreversible per-actor scope digest |
+| `idempotency_key` | UUID | client key |
+| `request_hash` | BYTEA | canonical method/path/body hash |
+| `state` | TEXT | `IN_PROGRESS`, `SUCCEEDED` |
+| `http_status` | SMALLINT NULL | first successful result |
+| `response_json` | JSONB NULL | redacted replay-safe response |
+| `created_at` | TIMESTAMPTZ | |
+| `completed_at` | TIMESTAMPTZ NULL | |
+
+Unique `(actor_scope_id, idempotency_key)` provides the permanent dedupe fact
+without retaining a reversible identity after Account Closure. Authorization
+is always evaluated before reading a replay result. Failed validation or
+authorization does not create a row.
+
+### 2.12 `quota_adjustment`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID PK | internal id |
+| `public_id` | TEXT UNIQUE | `adjustment_id` |
+| `target_user_id` | UUID NULL FK | target while identity exists |
+| `actor_user_id` | UUID NULL FK | actor while identity exists |
+| `delta` | INTEGER | non-zero signed units |
+| `balance_before` | INTEGER | available balance before |
+| `balance_after` | INTEGER | available balance after, never negative |
+| `reason` | TEXT | allowlisted stable reason |
+| `note` | TEXT NULL | bounded and redacted |
+| `idempotency_id` | UUID UNIQUE FK | one successful write |
+| `reverses_adjustment_id` | UUID UNIQUE NULL FK | linked original |
+| `created_at` | TIMESTAMPTZ | |
+
+Rows are append-only. Reversal inserts the exact opposite delta and links the
+original once; neither row is modified or deleted. Balance calculation, row
+insert, idempotency success, and audit success share one transaction and lock
+the target User. ACTIVE and DISABLED Users are eligible. Missing, closed, or
+de-identified targets are rejected.
+
+### 2.13 `admin_audit_log`
+
+Permanent append-only record of Administrator reads and writes. It stores audit
+id; nullable actor reference and then-current OWNER/ADMIN product identity;
+action; redacted target type/id; result/error code; redacted before/after;
+reason; idempotency key; request id; server timestamp; irreversible source-IP
+digest; and bounded client metadata.
 
 The initial Administrator promotion uses a reserved system actor and
 `SYSTEM_BOOTSTRAP` action in the same transaction that changes
 `app_user.role` and revokes the User's existing sessions.
+
+Audit rows cannot be updated or deleted. They never contain raw Invitation
+codes, full emails, prompts, Writer/failed-draft text, authentication tokens,
+Artifact bytes or storage paths, SQL, stack traces, or raw provider responses.
+
+### 2.14 Administrator Trip/Artifact source boundary
+
+The BFF retains local `user_trip` ownership/archive data and opaque
+`hermes_job_id`/`result_record_id` only. Global job steps, failed Writer drafts,
+structured result diagnostics, and Artifact metadata/binary remain Hermes
+sources accessed through a versioned, service-authenticated internal-admin HTTP
+contract. No BFF migration may add a cross-database foreign key, direct Hermes
+table mapping, duplicate rendering/cache table, or generic proxy.
 
 ## 3. Quota Source of Truth
 
 For one user and period:
 
 ```text
-used_units = SUM(units WHERE status IN ('RESERVED', 'CONSUMED'))
-remaining = SUM(granted_units) - used_units
+used_units = SUM(units WHERE trip_quota_entry.status IN ('RESERVED', 'CONSUMED'))
+adjusted_limit = SUM(quota_grant.units) + SUM(quota_adjustment.delta)
+remaining = adjusted_limit - used_units
 ```
 
 `RELEASED` entries do not consume remaining quota but remain for audit.
 
 Registration creates an initial grant of three units for the beta policy.
-Additional units may be granted only through an audited Administrator action.
+Additional Administrator changes use the audited immutable signed adjustment
+ledger. Negative adjustments lock the User and are rejected atomically if
+`remaining + delta < 0`; they are never clamped. Legacy positive grants remain
+part of `adjusted_limit`.
 
 ## 4. Reservation Transaction
 
@@ -342,3 +430,14 @@ P2 cannot pass without PostgreSQL integration evidence for:
 9. closure of a User with terminal trips deletes identity while retaining
    de-identified trip content with no reversible owner mapping
 10. migration upgrade and downgrade behavior is documented and tested
+11. concurrent signed quota adjustments and duplicate UUID idempotency commit
+    one legal balance transition
+12. a deduction below zero is rejected without a ledger, idempotency-success,
+    or partial balance change
+13. one reversal creates one exact opposite row; concurrent repeats cannot
+    reverse twice
+14. short-code batch creation stores HMAC digests only, discloses raw codes
+    once, and concurrent duplicate creation produces one batch
+15. Account Closure nulls or irreversibly de-identifies Administrator
+    idempotency, adjustment, Invitation, and audit actor/target references so
+    retained rows cannot reconstruct the closed identity

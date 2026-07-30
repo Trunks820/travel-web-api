@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import httpx
 import pytest
 
@@ -193,3 +195,164 @@ async def test_place_business_error_is_allowlisted_without_upstream_message() ->
     await client.close()
     assert captured.value.code == "PLACE_NOT_FOUND"
     assert "private upstream detail" not in str(captured.value)
+
+
+def _admin_trip_item() -> dict:
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    return {
+        "job_id": "job-admin-1",
+        "result_record_id": "42",
+        "status": "FAILED",
+        "current_stage": "FAILED",
+        "city": "重庆",
+        "result_type": None,
+        "safe_error": {
+            "code": "PUBLISH_GATE_FAILED",
+            "message": "攻略未通过发布校验",
+        },
+        "detailed_reason": "publish_gate_failed",
+        "created_at": now,
+        "started_at": now,
+        "finished_at": now,
+        "total_duration_ms": 200_000,
+        "retry_count": 1,
+        "failed_draft_available": True,
+        "provider_payload": {"secret": True},
+    }
+
+
+@pytest.mark.asyncio
+async def test_internal_admin_list_uses_independent_credential_and_safe_model() -> None:
+    seen = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen["headers"] = request.headers
+        seen["path"] = request.url.path
+        seen["params"] = dict(request.url.params)
+        request_id = request.headers["X-Request-ID"]
+        return httpx.Response(
+            200,
+            headers={"X-Request-ID": request_id},
+            json={
+                "ok": True,
+                "contract_version": "v1",
+                "request_id": request_id,
+                "page": 1,
+                "limit": 20,
+                "total": 1,
+                "items": [_admin_trip_item()],
+            },
+        )
+
+    client = HermesClient.from_settings(
+        Settings(
+            app_env="test",
+            hermes_internal_credential="ordinary-internal",
+            hermes_bff_internal_admin_credential="admin-internal",
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+    result = await client.admin_trip_jobs(
+        correlation_id="admin-request-1",
+        params={"page": 1, "limit": 20, "city": "重庆", "status": None},
+    )
+    await client.close()
+
+    assert seen["path"] == "/internal/v1/admin/trip-jobs"
+    assert seen["headers"]["x-internal-credential"] == "admin-internal"
+    assert seen["headers"]["x-internal-credential"] != "ordinary-internal"
+    assert seen["params"] == {"page": "1", "limit": "20", "city": "重庆"}
+    assert result.request_id == "admin-request-1"
+    assert "provider_payload" not in result.items[0].model_dump()
+
+
+@pytest.mark.asyncio
+async def test_internal_admin_requires_matching_request_id_and_v1_envelope() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"X-Request-ID": "different-request"},
+            json={
+                "ok": True,
+                "contract_version": "v2",
+                "request_id": request.headers["X-Request-ID"],
+                "page": 1,
+                "limit": 20,
+                "total": 0,
+                "items": [],
+            },
+        )
+
+    client = HermesClient.from_settings(
+        Settings(
+            app_env="test",
+            hermes_bff_internal_admin_credential="admin-internal",
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(HermesIntegrationError) as captured:
+        await client.admin_trip_jobs(
+            correlation_id="admin-request-1",
+            params={"page": 1, "limit": 20},
+        )
+    await client.close()
+    assert captured.value.category == "PROTOCOL"
+    assert captured.value.retryable is False
+
+
+@pytest.mark.asyncio
+async def test_internal_admin_download_validates_bytes_and_allowlists_file_missing() -> None:
+    mode = "success"
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        request_id = request.headers["X-Request-ID"]
+        if mode == "missing":
+            return httpx.Response(
+                409,
+                headers={"X-Request-ID": request_id},
+                json={
+                    "ok": False,
+                    "contract_version": "v1",
+                    "request_id": request_id,
+                    "error": {
+                        "code": "ARTIFACT_FILE_MISSING",
+                        "message": "private upstream copy",
+                    },
+                },
+            )
+        return httpx.Response(
+            200,
+            headers={
+                "X-Request-ID": request_id,
+                "Content-Type": "application/pdf",
+                "Content-Length": "9",
+                "Content-Disposition": 'attachment; filename="safe.pdf"',
+            },
+            content=b"%PDF-safe",
+        )
+
+    client = HermesClient.from_settings(
+        Settings(
+            app_env="test",
+            hermes_bff_internal_admin_credential="admin-internal",
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+    content, content_type = await client.admin_artifact_bytes(
+        "artifact-1",
+        correlation_id="admin-request-1",
+        max_bytes=100,
+    )
+    assert content == b"%PDF-safe"
+    assert content_type == "application/pdf"
+
+    mode = "missing"
+    with pytest.raises(HermesBusinessError) as captured:
+        await client.admin_artifact_bytes(
+            "artifact-1",
+            correlation_id="admin-request-2",
+            max_bytes=100,
+        )
+    await client.close()
+    assert captured.value.code == "ARTIFACT_FILE_MISSING"
+    assert "private upstream copy" not in str(captured.value)

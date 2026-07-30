@@ -74,10 +74,46 @@ class UserIdentity(Base):
     user: Mapped[AppUser] = relationship(back_populates="identities")
 
 
-class Invitation(Base):
-    __tablename__ = "invitation"
+class InvitationBatch(Base):
+    __tablename__ = "invitation_batch"
+    __table_args__ = (
+        CheckConstraint("code_count BETWEEN 1 AND 200", name="ck_invitation_batch_code_count"),
+        CheckConstraint("valid_days BETWEEN 1 AND 90", name="ck_invitation_batch_valid_days"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    public_id: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_label: Mapped[str] = mapped_column(String(120), nullable=False)
+    code_count: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    valid_days: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
+    creator_scope_hash: Mapped[bytes | None] = mapped_column(LargeBinary(32))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Invitation(Base):
+    __tablename__ = "invitation"
+    __table_args__ = (
+        UniqueConstraint("batch_id", "sequence_number", name="uq_invitation_batch_sequence"),
+        CheckConstraint(
+            "sequence_number IS NULL OR sequence_number > 0",
+            name="ck_invitation_sequence_positive",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    public_id: Mapped[str | None] = mapped_column(String(80), unique=True)
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("invitation_batch.id", ondelete="RESTRICT"), index=True
+    )
+    sequence_number: Mapped[int | None] = mapped_column(SmallInteger)
     secret_hash: Mapped[bytes] = mapped_column(LargeBinary(32), unique=True, nullable=False)
     source_label: Mapped[str] = mapped_column(String(120), nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
@@ -188,6 +224,112 @@ class QuotaGrant(Base):
     units: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     reason: Mapped[str] = mapped_column(String(64), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AdminIdempotency(Base):
+    __tablename__ = "admin_idempotency"
+    __table_args__ = (
+        UniqueConstraint(
+            "actor_scope_hash",
+            "idempotency_key",
+            name="uq_admin_idempotency_actor_key",
+        ),
+        CheckConstraint(
+            "state IN ('IN_PROGRESS', 'SUCCEEDED')",
+            name="ck_admin_idempotency_state",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column()
+    actor_scope_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    idempotency_key: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    request_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="IN_PROGRESS")
+    http_status: Mapped[int | None] = mapped_column(SmallInteger)
+    response_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class QuotaAdjustment(Base):
+    __tablename__ = "quota_adjustment"
+    __table_args__ = (
+        CheckConstraint("delta <> 0", name="ck_quota_adjustment_nonzero"),
+        CheckConstraint(
+            "balance_before >= 0 AND balance_after >= 0",
+            name="ck_quota_adjustment_nonnegative_balance",
+        ),
+        UniqueConstraint(
+            "reverses_adjustment_id",
+            name="uq_quota_adjustment_reversal",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    public_id: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    target_user_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
+    target_scope_hash: Mapped[bytes | None] = mapped_column(LargeBinary(32))
+    actor_scope_hash: Mapped[bytes | None] = mapped_column(LargeBinary(32))
+    delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    balance_before: Mapped[int] = mapped_column(Integer, nullable=False)
+    balance_after: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String(80), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(500))
+    idempotency_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("admin_idempotency.id", ondelete="RESTRICT"),
+        unique=True,
+        nullable=False,
+    )
+    reverses_adjustment_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("quota_adjustment.id", ondelete="RESTRICT")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AdminAuditLog(Base):
+    __tablename__ = "admin_audit_log"
+    __table_args__ = (
+        CheckConstraint(
+            "actor_identity IN ('USER', 'ADMIN', 'OWNER', 'SYSTEM')",
+            name="ck_admin_audit_actor_identity",
+        ),
+        CheckConstraint(
+            "result IN ('SUCCESS', 'FAILURE')",
+            name="ck_admin_audit_result",
+        ),
+        Index("ix_admin_audit_created_id", "created_at", "id"),
+        Index("ix_admin_audit_action_created", "action", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    public_id: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
+    actor_identity: Mapped[str] = mapped_column(String(16), nullable=False)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    target_id: Mapped[str | None] = mapped_column(String(160))
+    result: Mapped[str] = mapped_column(String(16), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    before_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    after_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    reason: Mapped[str | None] = mapped_column(String(120))
+    idempotency_key: Mapped[uuid.UUID | None] = mapped_column()
+    request_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_ip_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    client_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

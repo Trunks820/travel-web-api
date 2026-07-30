@@ -1,6 +1,6 @@
 # Implementation and Acceptance Plan
 
-Status: **v0.1 Documentation Accepted / Implementation Pending**
+Status: **v0.1 Implementation Complete / Acceptance Pending**
 
 The project advances strictly through D0 and P0-P6. D0, sibling-frontend work,
 and P6 deployment are hard user-authorization gates. Within one explicitly
@@ -200,29 +200,105 @@ Acceptance:
 J1 changes no frontend payload shape and does not open P4, P5, P6, v0.2,
 deployment, or sibling-repository edits.
 
+## A0 — travel-admin Product Contract Freeze
+
+Status: **Accepted**.
+
+The frozen contract keeps `USER`/`ADMIN` as the database roles and derives one
+OWNER product identity from a configured immutable `app_user.id`. It freezes
+the task-specific endpoint inventory, OWNER/ADMIN capability matrix, signed
+quota adjustments, HMAC-only short Invitation codes with one-time disclosure,
+permanent redacted audit, archive/failed-draft/Artifact read boundaries,
+Dashboard/report formulas, UUID idempotency, and the no-secondary-confirmation
+policy. Frontend page composition and template choice remain P5B concerns and
+do not block the BFF API implementation.
+
+Accepted status:
+
+`Documentation Accepted / Implementation Pending`
+
 ## P4 — Administrator API
 
-The Administrator API is implemented in `travel-web-api`. P4 requires the
-separate Administrator A0 product freeze. The `travel-admin` repository is a
-separate static React workstream and never connects to PostgreSQL or
-`hermes-travel` directly.
+The Administrator API is implemented only in `travel-web-api`. A0 is accepted.
+The `travel-admin` repository remains a separately gated static React
+workstream and never connects to PostgreSQL or `hermes-travel` directly.
 
-Scope:
+### P4.0 — Persistence and security infrastructure
 
-- Administrator role enforcement
-- dashboard summary API
-- User search, suspension/restoration, and audited quota grants
-- Invitation creation, visibility, and disablement
-- seven-day Trip Attempt and safe-failure inspection
-- append-only Administrator audit log
-- accepted A0 archive inspection projection, if any
+- Alembic migration from both empty and existing v0.1 schemas
+- Invitation batch/code metadata compatible with existing redemptions
+- configured immutable OWNER id and capability projection
+- permanent Administrator UUID idempotency records
+- permanent append-only redacted audit records
+- immutable signed quota adjustment ledger
 
-Acceptance:
+Acceptance requires migration proof, USER/ADMIN/OWNER capability-unit tests,
+same-key same-request replay, conflict, concurrent-deduplication evidence, and
+proof that secrets/personal bodies cannot enter audit.
 
-- ordinary Users receive `403 ADMIN_REQUIRED`
-- every Administrator mutation has authorization, idempotency, and audit proof
-- no generic SQL/table/query endpoint exists
-- OpenAPI is sufficient for a separate `travel-admin` implementation
+### P4.1 — Identity, Users, roles, and signed quota
+
+- `/api/admin/me`
+- paginated/masked User list and detail
+- separately audited/no-store full-email reveal
+- disable/restore with immediate session revocation
+- OWNER-only ADMIN grant/revoke and final-OWNER protection
+- signed quota add/subtract, insufficient-balance rejection, ledger, and one
+  linked reversal
+
+Acceptance requires Visitor 401, USER 403, ADMIN/OWNER matrix, session
+revocation, atomic balance and concurrent idempotency evidence against
+PostgreSQL.
+
+### P4.2 — Invitation batches and short codes
+
+- batch list/create/detail and irreversible batch disable
+- exact `YT-XXXX-XXXX` codes, HMAC-only storage, required 1-90 day expiry
+- one-time raw disclosure and non-disclosing idempotent replay
+- JSON-body full-code lookup and irreversible one-code disable
+- separate ACTIVE/EXPIRED/DISABLED/EXHAUSTED states
+- compatibility with existing Invitation/redemption rows
+
+Acceptance requires format/alphabet tests, HMAC/no-log evidence, collision
+retry, concurrent creation/redeem/disable, and one-time-disclosure proof.
+
+### P4.3 — Dashboard, reports, and audit query
+
+- frozen Dashboard counts and 24-hour terminal formula
+- Trip-generation trends/rates/distributions/P50/P95/slow-task metrics
+- privacy-bounded structured preference aggregation
+- allowlisted paginated audit query without export
+
+Acceptance requires exact zero-denominator semantics, 180-second exception
+classification, multi-select denominator proof, `<3 -> OTHER`, and no raw
+notes/email/prompt/Writer analysis.
+
+### P4.4 — Trip/archive/failure-draft/Artifact projection
+
+- permanent Trip archive filtering and safe operational diagnostics
+- read-only unpublished failed Writer draft
+- read-only READY/EXPIRED Artifact metadata and audited download
+- opaque navigation among job/result/Artifact ids
+
+Hermes P4.4-H1 is accepted and exposes the six required versioned
+service-authenticated internal-admin routes. P4.4 consumes that contract with a
+dedicated credential, validates safe projections and stable Artifact states,
+and does not read Hermes tables, modify the sibling repository, or invent a
+BFF source of truth.
+
+### P4.5 — Contract and acceptance evidence
+
+- complete OpenAPI endpoint/schema/error inventory
+- targeted and full unit tests
+- real PostgreSQL integration/security/idempotency tests
+- empty and existing-baseline Alembic upgrade verification
+- `uv run pytest`
+- `uv run ruff check .`
+- `uv run ruff format --check .`
+
+P4 passes only when P4.0-P4.5 each pass serially. The resulting status is
+`Implementation Complete / Acceptance Pending`; it is not deployment
+acceptance.
 
 ## P5 — Frontend Integration Workstreams
 
@@ -277,8 +353,9 @@ Acceptance:
 
 - ordinary Users receive `403 ADMIN_REQUIRED`
 - no direct browser request to PostgreSQL or `hermes-travel`
-- Administrator mutations show confirmation/reason states and produce audit
-  evidence
+- Administrator mutations use explicit result-labelled controls and reason
+  fields, with no recent re-authentication/MFA/second-confirmation protocol,
+  and produce audit evidence
 
 ## P6 — Deployment and Live Acceptance
 
@@ -354,9 +431,10 @@ Resolved:
    frontend types may be generated from OpenAPI
 6. all User and Administrator sessions use a fixed seven-day absolute expiry
    with no sliding or separate idle expiry
-7. the first Administrator is a verified User promoted by a reviewed private
-   server PostgreSQL transaction that revokes sessions and writes a
-   `SYSTEM_BOOTSTRAP` audit event; v0.1 has no public role-management API
+7. the first Administrator is a verified User promoted by a controlled private
+   bootstrap transaction that revokes sessions, writes `SYSTEM_BOOTSTRAP`, and
+   configures that immutable `app_user.id` as OWNER; authenticated OWNER-only
+   role grant/revoke APIs then manage the `ADMIN` database role
 8. Trip History is visible for seven days, then retained indefinitely as a
    Content Archive; Account Closure deletes identity/session data and severs
    ownership from every retained terminal Trip Attempt without deleting its

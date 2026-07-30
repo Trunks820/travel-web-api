@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -64,6 +65,106 @@ class HermesJobStatus(HermesModel):
         }:
             raise ValueError("unsupported job status")
         return normalized
+
+
+class HermesAdminEnvelope(HermesModel):
+    ok: Literal[True]
+    contract_version: Literal["v1"]
+    request_id: str = Field(min_length=1, max_length=120)
+
+
+class HermesAdminSafeError(HermesModel):
+    code: str = Field(min_length=1, max_length=80)
+    message: str = Field(min_length=1, max_length=500)
+
+
+class HermesAdminTripStep(HermesModel):
+    stage: str = Field(min_length=1, max_length=120)
+    status: str = Field(min_length=1, max_length=32)
+    attempt: int = Field(ge=1)
+    publish_retry_round: int = Field(ge=0)
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_ms: int | None = Field(default=None, ge=0)
+
+
+class HermesAdminTripJob(HermesModel):
+    job_id: str = Field(min_length=1, max_length=160)
+    result_record_id: str | None = Field(default=None, min_length=1, max_length=160)
+    status: Literal["PENDING", "RUNNING", "SUCCESS", "FAILED", "TIMEOUT", "REJECTED"]
+    current_stage: str | None = Field(default=None, max_length=120)
+    city: str | None = Field(default=None, max_length=120)
+    result_type: Literal["PLAN_READY", "NO_CANDIDATES", "NO_USABLE_ROUTE"] | None = None
+    safe_error: HermesAdminSafeError | None = None
+    detailed_reason: str | None = Field(default=None, max_length=80)
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    total_duration_ms: int = Field(ge=0)
+    retry_count: int = Field(ge=0)
+    failed_draft_available: bool
+    steps: list[HermesAdminTripStep] | None = Field(default=None, max_length=200)
+
+
+class HermesAdminTripJobList(HermesAdminEnvelope):
+    page: int = Field(ge=1)
+    limit: int = Field(ge=1, le=100)
+    total: int = Field(ge=0)
+    items: list[HermesAdminTripJob] = Field(max_length=100)
+
+
+class HermesAdminTripJobDetail(HermesAdminEnvelope):
+    trip_job: HermesAdminTripJob
+
+
+class HermesAdminFailedDraftPlan(HermesModel):
+    plan_name: str = Field(max_length=300)
+    summary: str = Field(max_length=10_000)
+    plan_text: str = Field(min_length=1, max_length=200_000)
+    used_place_names: list[str] = Field(default_factory=list, max_length=500)
+    day_place_names: list[list[str]] = Field(default_factory=list, max_length=60)
+
+
+class HermesAdminFailedDraft(HermesModel):
+    job_id: str = Field(min_length=1, max_length=160)
+    created_at: datetime
+    plans: list[HermesAdminFailedDraftPlan] = Field(min_length=1, max_length=20)
+
+
+class HermesAdminFailedDraftDetail(HermesAdminEnvelope):
+    failed_draft: HermesAdminFailedDraft
+
+
+class HermesAdminArtifact(HermesModel):
+    artifact_id: str = Field(min_length=1, max_length=160)
+    result_record_id: str = Field(min_length=1, max_length=160)
+    artifact_type: Literal["pdf", "share_image"]
+    status: Literal["PENDING", "RUNNING", "READY", "FAILED", "EXPIRED"]
+    filename: str | None = Field(default=None, max_length=255)
+    mime_type: str | None = Field(default=None, max_length=120)
+    byte_size: int | None = Field(default=None, ge=0)
+    sha256: str | None = Field(default=None, max_length=128)
+    text_length: int | None = Field(default=None, ge=0)
+    width_px: int | None = Field(default=None, ge=0)
+    height_px: int | None = Field(default=None, ge=0)
+    page_count: int | None = Field(default=None, ge=0)
+    attempt_count: int = Field(ge=0)
+    safe_error: HermesAdminSafeError | None = None
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    expires_at: datetime | None = None
+
+
+class HermesAdminArtifactList(HermesAdminEnvelope):
+    page: int = Field(ge=1)
+    limit: int = Field(ge=1, le=100)
+    total: int = Field(ge=0)
+    items: list[HermesAdminArtifact] = Field(max_length=100)
+
+
+class HermesAdminArtifactDetail(HermesAdminEnvelope):
+    artifact: HermesAdminArtifact
 
 
 class ResultCity(HermesModel):

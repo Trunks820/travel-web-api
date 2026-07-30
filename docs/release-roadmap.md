@@ -1,6 +1,7 @@
 # Release Roadmap
 
-Status: **v0.1 Accepted / v0.2 Product Freeze In Progress**
+Status: **v0.1 Implementation Complete / Acceptance Pending /
+v0.2 Product Freeze In Progress**
 
 Only v0.1 and v0.2 are committed product work. Later ideas remain unplanned
 candidates until live evidence justifies a new version.
@@ -45,7 +46,22 @@ shipped product capability. They are not interchangeable labels.
 `travel-admin` is never an ordinary-user portal. It is limited to the owner,
 Administrators, and future operators, and uses only `/api/admin/*`.
 
-Its v0.1 product scope is frozen separately by the Administrator A0 interview.
+Its v0.1 A0 scope is frozen:
+
+- the database role enum remains `USER`/`ADMIN`; one configured immutable
+  `app_user.id` receives the server-side `OWNER` product identity
+- OWNER-only role grant/revoke, ADMIN-bounded User disable/restore, and
+  immediate session revocation
+- immutable signed quota adjustments and linked reversals
+- HMAC-only `YT-XXXX-XXXX` Invitation batches with one-time raw disclosure
+- permanent redacted Administrator audit
+- full archive Trip/failed-draft/READY-Artifact read projections
+- fixed Dashboard, Trip-generation report, and structured preference insights
+- UUID idempotency on every Administrator write
+
+P4 is implemented as P4.0-P4.5 serial checkpoints. Hermes P4.4-H1 now provides
+the required versioned, service-authenticated internal-admin HTTP contract;
+the BFF consumes it without a cross-database join.
 
 ### v0.1 exit evidence
 
@@ -174,7 +190,8 @@ These are not assigned to a release:
 - subscription billing
 - private share links
 - permanent user-owned saved trips
-- multi-role operations (`OWNER`, `OPERATOR`, read-only roles)
+- additional database/operational roles (`OPERATOR`, read-only roles); v0.1
+  keeps only `USER`/`ADMIN` plus the server-side OWNER identity
 - public trip discovery, likes, comments, and creator features
 
 The next version after v0.2 is chosen from observed demand:

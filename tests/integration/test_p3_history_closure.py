@@ -1,17 +1,23 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 from sqlalchemy import func, select, update
 
+from src.admin.audit import admin_subject_hash, audit_source_ip_hash
 from src.db.models import (
+    AdminAuditLog,
+    AdminIdempotency,
     AppUser,
     EmailOtpChallenge,
     Invitation,
+    InvitationBatch,
     InvitationRedemption,
+    QuotaAdjustment,
     QuotaGrant,
     TripQuotaEntry,
     UserIdentity,
@@ -417,6 +423,57 @@ async def test_closure_deletes_identity_and_keeps_only_deidentified_archive(
         created_at=now - timedelta(hours=1),
         visible_until=now + timedelta(days=7),
     )
+    subject_hash = admin_subject_hash(user.id, test_settings)
+    async with session_factory() as session, session.begin():
+        idempotency = AdminIdempotency(
+            actor_user_id=user.id,
+            actor_scope_hash=subject_hash,
+            idempotency_key=uuid.uuid4(),
+            request_hash=b"r" * 32,
+            state="SUCCEEDED",
+            http_status=200,
+            response_json={"ok": True},
+            completed_at=now,
+        )
+        session.add(idempotency)
+        await session.flush()
+        session.add_all(
+            (
+                QuotaAdjustment(
+                    public_id=new_opaque_id("adj_"),
+                    target_user_id=user.id,
+                    actor_user_id=user.id,
+                    target_scope_hash=subject_hash,
+                    actor_scope_hash=subject_hash,
+                    delta=1,
+                    balance_before=0,
+                    balance_after=1,
+                    reason="TEST",
+                    idempotency_id=idempotency.id,
+                ),
+                InvitationBatch(
+                    public_id=new_opaque_id("batch_"),
+                    name="closure-test",
+                    source_label="closure-test",
+                    code_count=1,
+                    valid_days=30,
+                    expires_at=now + timedelta(days=30),
+                    created_by_user_id=user.id,
+                    creator_scope_hash=subject_hash,
+                ),
+                AdminAuditLog(
+                    public_id=new_opaque_id("audit_"),
+                    actor_user_id=user.id,
+                    actor_identity="ADMIN",
+                    action="TEST_BEFORE_CLOSURE",
+                    target_type="USER",
+                    target_id=user.public_id,
+                    result="SUCCESS",
+                    request_id="closure-admin-test",
+                    source_ip_hash=audit_source_ip_hash("127.0.0.1", test_settings),
+                ),
+            )
+        )
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="https://kakarot8.com",
@@ -444,6 +501,23 @@ async def test_closure_deletes_identity_and_keeps_only_deidentified_archive(
         assert await session.scalar(select(func.count()).select_from(InvitationRedemption)) == 0
         assert await session.scalar(select(func.count()).select_from(EmailOtpChallenge)) == 0
         assert await session.scalar(select(func.count()).select_from(TripQuotaEntry)) == 0
+        idempotency = await session.scalar(select(AdminIdempotency))
+        adjustment = await session.scalar(select(QuotaAdjustment))
+        batch = await session.scalar(select(InvitationBatch))
+        audit = await session.scalar(
+            select(AdminAuditLog).where(AdminAuditLog.action == "TEST_BEFORE_CLOSURE")
+        )
+        assert idempotency is not None and idempotency.actor_user_id is None
+        assert adjustment is not None
+        assert adjustment.actor_user_id is None
+        assert adjustment.target_user_id is None
+        assert adjustment.actor_scope_hash == subject_hash
+        assert adjustment.target_scope_hash == subject_hash
+        assert batch is not None and batch.created_by_user_id is None
+        assert batch.creator_scope_hash == subject_hash
+        assert audit is not None
+        assert audit.actor_user_id is None
+        assert audit.target_id is None
         rows = list(
             (await session.scalars(select(UserTrip).order_by(UserTrip.created_at.desc()))).all()
         )

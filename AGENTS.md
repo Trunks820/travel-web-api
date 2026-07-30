@@ -17,12 +17,12 @@ Accepted stack:
 - Pydantic Settings
 - pytest
 
-Current phase: **v0.1 Documentation Accepted / Implementation Pending**.
+Current phase: **v0.1 Implementation Complete / Acceptance Pending**.
 
-The user explicitly resumed **v0.1 BFF implementation** after accepting the
-`travel-web` D0 contract. P0-P4 may proceed through their serial internal
-checkpoints. v0.2, sibling-repository edits, production databases, deployment,
-commit, push, and remote-repository creation remain separately gated.
+The user accepted Hermes P4.4-H1 and the BFF P4.0-P4.5 implementation and
+internal acceptance checkpoints are complete. v0.2, sibling-repository edits,
+production databases, deployment, commit, push, and remote-repository creation
+remain separately gated.
 
 ## Authority Order
 
@@ -58,6 +58,10 @@ This repository owns:
 - same-origin frontend API
 - authenticated proxying to `hermes-travel`
 - administrator APIs and audit logs used by `travel-admin`
+- server-configured `OWNER` product identity projected from an immutable
+  `app_user.id` without adding an `OWNER` database role
+- immutable signed quota adjustments, short-code Invitation batches,
+  operational reports, and permanent archive administration
 
 This repository does not own:
 
@@ -68,6 +72,7 @@ This repository does not own:
 - frontend rendering
 - ordinary-User account, quota, history, failure, or PDF user interfaces
 - a separate administrator backend service
+- arbitrary SQL, table-name, column-name, raw-query, or generic BI endpoints
 - payments or subscription billing in v0.1
 - payments, subscriptions, Google OIDC, or public community features in v0.2
 
@@ -84,6 +89,14 @@ integration boundary is versioned internal HTTP.
   access.
 - Quota is enforced transactionally in PostgreSQL. Redis must not be the
   source of truth.
+- All Administrator writes require UUID idempotency scoped to
+  `(actor_user_id, idempotency_key)` and re-check current authorization before
+  replaying a stored success.
+- `admin_audit_log` is permanent, append-only, and redacted. Raw Invitation
+  codes, full emails, failed Writer drafts, prompts, tokens, artifact bytes,
+  SQL, and stack traces must never enter it.
+- Full-email reveal, failed-draft inspection, and Artifact download are
+  authenticated, audited, and returned with `Cache-Control: no-store`.
 - Never pass email, phone number, login-provider subject, or raw session data
   to `hermes-travel`.
 - Seven-day Trip History expiry is an archive transition, not deletion.
@@ -95,9 +108,9 @@ integration boundary is versioned internal HTTP.
   be committed.
 - Database, Redis, and internal service ports must not be publicly reachable.
 
-## Planned Project Layout
+## Project Layout
 
-P0 may create the following structure after D0 acceptance:
+The capability-oriented layout includes:
 
 ```text
 src/
@@ -120,9 +133,7 @@ tests/
 Keep modules organized by product capability. Avoid generic service/repository
 layers unless they express a real transaction or integration boundary.
 
-## Planned Setup and Development Commands
-
-These commands are planned contracts for P0 and do not exist yet:
+## Setup and Development Commands
 
 ```bash
 uv sync
@@ -130,7 +141,7 @@ uv run alembic upgrade head
 uv run uvicorn src.app:app --host 127.0.0.1 --port 6670 --reload
 ```
 
-Do not claim they pass until P0 creates and verifies the required files.
+Do not claim they pass unless they were run in the current evidence slice.
 
 ## Testing Requirements
 
@@ -202,9 +213,11 @@ history and may contain unrelated changes.
 
 Treat D0, cross-repository frontend integration, and production deployment as
 hard user-authorization gates. Within an explicitly authorized BFF
-implementation slice, P0-P4 are strict serial internal checkpoints: run and
+implementation slice, phases are strict serial internal checkpoints: run and
 record each checkpoint's evidence, and continue automatically only when it
-passes. P4 also requires the Administrator A0 product freeze. Report:
+passes. The Administrator A0 product freeze is accepted. P4.0-P4.5 remain
+strict serial checkpoints, and P4.4 must stop if Hermes lacks the required
+versioned internal-admin HTTP contract. Report:
 
 1. Conclusion
 2. Blocking Issues

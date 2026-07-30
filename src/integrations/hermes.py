@@ -3,12 +3,18 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from typing import Any, TypeVar
+from urllib.parse import quote
 
 import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from src.config import Settings
 from src.integrations.hermes_models import (
+    HermesAdminArtifactDetail,
+    HermesAdminArtifactList,
+    HermesAdminFailedDraftDetail,
+    HermesAdminTripJobDetail,
+    HermesAdminTripJobList,
     HermesArtifact,
     HermesJobStatus,
     HermesPlaceDetail,
@@ -23,6 +29,15 @@ ARTIFACT_CONTENT_TYPES = {
     "pdf": "application/pdf",
     "share_image": "image/png",
 }
+ADMIN_ARTIFACT_CONTENT_TYPES = frozenset(ARTIFACT_CONTENT_TYPES.values())
+ADMIN_ARTIFACT_DOWNLOAD_ERRORS = frozenset(
+    {
+        "ARTIFACT_NOT_FOUND",
+        "ARTIFACT_NOT_READY",
+        "ARTIFACT_FILE_MISSING",
+        "ARTIFACT_EXPIRED",
+    }
+)
 
 
 class HermesHealth(BaseModel):
@@ -57,10 +72,12 @@ class HermesClient:
         *,
         base_url: str,
         credential: str,
+        admin_credential: str,
         timeout: httpx.Timeout,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._credential = credential
+        self._admin_credential = admin_credential
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             timeout=timeout,
@@ -77,6 +94,7 @@ class HermesClient:
         return cls(
             base_url=settings.hermes_base_url,
             credential=settings.hermes_internal_credential.get_secret_value(),
+            admin_credential=(settings.hermes_bff_internal_admin_credential.get_secret_value()),
             timeout=httpx.Timeout(
                 connect=settings.hermes_connect_timeout_seconds,
                 read=settings.hermes_read_timeout_seconds,
@@ -90,6 +108,12 @@ class HermesClient:
         return {
             "X-Request-ID": correlation_id,
             "X-Internal-Credential": self._credential,
+        }
+
+    def admin_headers(self, correlation_id: str) -> dict[str, str]:
+        return {
+            "X-Request-ID": correlation_id,
+            "X-Internal-Credential": self._admin_credential,
         }
 
     async def readiness(self, correlation_id: str) -> None:
@@ -190,6 +214,162 @@ class HermesClient:
                 retryable=False,
                 acceptance_uncertain=acceptance_possible,
             ) from exc
+
+    async def _request_admin_model(
+        self,
+        model_type: type[ModelT],
+        path: str,
+        *,
+        correlation_id: str,
+        params: dict[str, Any] | None = None,
+        allowed_business_errors: frozenset[str] = frozenset(),
+    ) -> ModelT:
+        try:
+            response = await self._client.get(
+                path,
+                headers=self.admin_headers(correlation_id),
+                params={key: value for key, value in (params or {}).items() if value is not None},
+            )
+            self._validate_admin_response_request_id(response, correlation_id)
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise HermesIntegrationError("PROTOCOL", retryable=False)
+            model = model_type.model_validate(payload)
+            if getattr(model, "request_id", None) != correlation_id:
+                raise HermesIntegrationError("PROTOCOL", retryable=False)
+            return model
+        except (HermesIntegrationError, HermesBusinessError):
+            raise
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            raise HermesIntegrationError("UNAVAILABLE", retryable=True) from exc
+        except httpx.HTTPStatusError as exc:
+            code = _safe_error_code(exc.response)
+            if code in allowed_business_errors:
+                raise HermesBusinessError(code) from exc
+            raise HermesIntegrationError(
+                "UNAVAILABLE" if exc.response.status_code >= 500 else "PROTOCOL",
+                retryable=exc.response.status_code >= 500,
+            ) from exc
+        except (ValueError, ValidationError) as exc:
+            raise HermesIntegrationError("PROTOCOL", retryable=False) from exc
+
+    @staticmethod
+    def _validate_admin_response_request_id(
+        response: httpx.Response,
+        correlation_id: str,
+    ) -> None:
+        if response.headers.get("X-Request-ID") != correlation_id:
+            raise HermesIntegrationError("PROTOCOL", retryable=False)
+
+    async def admin_trip_jobs(
+        self,
+        *,
+        correlation_id: str,
+        params: dict[str, Any],
+    ) -> HermesAdminTripJobList:
+        return await self._request_admin_model(
+            HermesAdminTripJobList,
+            "/internal/v1/admin/trip-jobs",
+            correlation_id=correlation_id,
+            params=params,
+        )
+
+    async def admin_trip_job(
+        self,
+        job_id: str,
+        *,
+        correlation_id: str,
+    ) -> HermesAdminTripJobDetail:
+        return await self._request_admin_model(
+            HermesAdminTripJobDetail,
+            f"/internal/v1/admin/trip-jobs/{quote(job_id, safe='')}",
+            correlation_id=correlation_id,
+            allowed_business_errors=frozenset({"TRIP_JOB_NOT_FOUND"}),
+        )
+
+    async def admin_failed_draft(
+        self,
+        job_id: str,
+        *,
+        correlation_id: str,
+    ) -> HermesAdminFailedDraftDetail:
+        return await self._request_admin_model(
+            HermesAdminFailedDraftDetail,
+            f"/internal/v1/admin/trip-jobs/{quote(job_id, safe='')}/failed-draft",
+            correlation_id=correlation_id,
+            allowed_business_errors=frozenset({"TRIP_JOB_NOT_FOUND", "FAILED_DRAFT_NOT_FOUND"}),
+        )
+
+    async def admin_artifacts(
+        self,
+        *,
+        correlation_id: str,
+        params: dict[str, Any],
+    ) -> HermesAdminArtifactList:
+        return await self._request_admin_model(
+            HermesAdminArtifactList,
+            "/internal/v1/admin/artifacts",
+            correlation_id=correlation_id,
+            params=params,
+        )
+
+    async def admin_artifact(
+        self,
+        artifact_id: str,
+        *,
+        correlation_id: str,
+    ) -> HermesAdminArtifactDetail:
+        return await self._request_admin_model(
+            HermesAdminArtifactDetail,
+            f"/internal/v1/admin/artifacts/{quote(artifact_id, safe='')}",
+            correlation_id=correlation_id,
+            allowed_business_errors=frozenset({"ARTIFACT_NOT_FOUND"}),
+        )
+
+    async def admin_artifact_bytes(
+        self,
+        artifact_id: str,
+        *,
+        correlation_id: str,
+        max_bytes: int,
+    ) -> tuple[bytes, str]:
+        try:
+            response = await self._client.get(
+                f"/internal/v1/admin/artifacts/{quote(artifact_id, safe='')}/download",
+                headers=self.admin_headers(correlation_id),
+            )
+            self._validate_admin_response_request_id(response, correlation_id)
+            response.raise_for_status()
+        except (HermesIntegrationError, HermesBusinessError):
+            raise
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            raise HermesIntegrationError("UNAVAILABLE", retryable=True) from exc
+        except httpx.HTTPStatusError as exc:
+            code = _safe_error_code(exc.response)
+            if code in ADMIN_ARTIFACT_DOWNLOAD_ERRORS:
+                raise HermesBusinessError(code) from exc
+            raise HermesIntegrationError(
+                "UNAVAILABLE" if exc.response.status_code >= 500 else "PROTOCOL",
+                retryable=exc.response.status_code >= 500,
+            ) from exc
+
+        content = response.content
+        content_type = response.headers.get("content-type", "").split(";", 1)[0].casefold()
+        raw_length = response.headers.get("content-length")
+        disposition = response.headers.get("content-disposition")
+        try:
+            declared_length = int(raw_length or "")
+        except ValueError as exc:
+            raise HermesIntegrationError("PROTOCOL", retryable=False) from exc
+        if (
+            content_type not in ADMIN_ARTIFACT_CONTENT_TYPES
+            or declared_length != len(content)
+            or len(content) > max_bytes
+            or not disposition
+        ):
+            raise HermesIntegrationError("PROTOCOL", retryable=False)
+        return content, content_type
 
     async def create_trip(
         self,

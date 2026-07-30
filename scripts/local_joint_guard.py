@@ -79,6 +79,10 @@ def validate_local_joint_settings(
         "HERMES_INTERNAL_CREDENTIAL",
         settings.hermes_internal_credential.get_secret_value(),
     )
+    _validate_local_secret(
+        "HERMES_BFF_INTERNAL_ADMIN_CREDENTIAL",
+        settings.hermes_bff_internal_admin_credential.get_secret_value(),
+    )
 
     if (
         settings.directmail_access_key_id.get_secret_value()

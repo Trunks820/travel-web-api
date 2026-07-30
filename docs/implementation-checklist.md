@@ -1,6 +1,6 @@
 # Implementation Checklist
 
-Status: **v0.1 Documentation Accepted / Implementation Pending**
+Status: **v0.1 Implementation Complete / Acceptance Pending**
 
 This checklist translates the accepted design into executable work. It is an
 execution tracker, not a new source of product truth. If it conflicts with a
@@ -54,40 +54,47 @@ Rules:
 
 ## A0 — travel-admin Product Freeze
 
-A0 is documentation-only and may be completed while P0-P3 are being planned or
-implemented. It must pass before P4 starts.
+A0 is documentation-only. It is accepted and opens P4.0-P4.5.
 
 ### Decisions to resolve
 
-- [ ] Define whether Administrator trip inspection covers only the latest seven
-  days or the complete permanent Content Archive.
-- [ ] Define the dashboard's first-screen questions and metric time windows.
-- [ ] Define User search fields and which personal fields an Administrator may
-  see.
-- [ ] Define suspension/restoration behavior and required reasons.
-- [ ] Define manual quota-grant limits, reasons, and whether grants may be
-  negative or revoked.
-- [ ] Define Invitation batch size limits, source labels, expiry, export, and
-  secret re-display rules.
-- [ ] Define Trip Attempt filters, safe failure detail, and content-preview
-  boundaries.
-- [ ] Define which Administrator actions require confirmation or fresh
-  authentication.
-- [ ] Define whether v0.1 has one Administrator permission set or multiple
-  operational roles.
-- [ ] Define audit-log visibility, retention, and export requirements.
-- [ ] Define the initial `travel-admin` page map and mobile-support boundary.
-- [ ] Choose the reusable React admin template only after the product boundary
-  is frozen.
+- [x] Freeze default seven-day plus filterable permanent Content Archive Trip
+  inspection.
+- [x] Freeze Dashboard User/Trip/Invitation metrics, rolling windows, exception
+  feed, server `as_of`, and terminal-success denominator.
+- [x] Freeze paginated User search, masked list email, audited/no-store full
+  email reveal, and no bulk email export.
+- [x] Freeze disable/restore behavior, required reason, immediate session
+  revocation, and no automatic restoration of role/quota/history/session.
+- [x] Replace positive-only manual grants with immutable signed adjustments,
+  non-negative post-balance, and one linked reversal.
+- [x] Freeze 1-200 short-code Invitation batches, 1-90 day expiry, HMAC-only
+  storage, one-time disclosure, lookup, and irreversible code/batch disable.
+- [x] Freeze Trip exception taxonomy, failed Writer diagnostic boundary, and
+  READY/EXPIRED read-only Artifact boundary.
+- [x] Freeze no recent re-authentication, MFA, or second-confirmation protocol;
+  reason, explicit result-labelled control, authorization, idempotency,
+  transaction, and audit remain mandatory.
+- [x] Keep database roles `USER`/`ADMIN`; derive one OWNER product identity from
+  configured immutable `app_user.id`.
+- [x] Freeze permanent append-only redacted audit visibility for OWNER/ADMIN
+  with no bulk export.
+- [x] Record page grouping from the endpoint inventory; visual page map,
+  responsive behavior, and template selection remain the separately gated P5B
+  frontend concern.
+- [x] Freeze Dashboard, Trip-generation, and structured preference report
+  metrics and privacy thresholds.
 
 ### A0 evidence and gate
 
-- [ ] Update BFF Administrator API contracts after each accepted decision.
-- [ ] Record new canonical domain terms in `CONTEXT.md` only when needed.
-- [ ] Add an ADR only for a hard-to-reverse, surprising trade-off.
-- [ ] Verify no Administrator screen requires direct PostgreSQL or
+- [x] Update BFF Administrator API contracts after each accepted decision.
+- [x] Record OWNER as product identity, signed adjustment, one-time disclosure,
+  and failed diagnostic draft in canonical documentation.
+- [x] Keep the accepted decisions in the ordered authority documents; no
+  additional ADR is required for this implementation slice.
+- [x] Verify no Administrator screen requires direct PostgreSQL or
   `hermes-travel` access.
-- [ ] User explicitly accepts A0 before P4.
+- [x] User explicitly freezes A0 and authorizes P4.0-P4.5 serial execution.
 
 ## P0 — Service Skeleton and Security Boundary
 
@@ -438,42 +445,103 @@ implemented. It must pass before P4 starts.
 
 Entry requirement:
 
-- [ ] A0 travel-admin product decisions accepted.
-- [ ] P3 internal checkpoint passed.
+- [x] A0 travel-admin product decisions accepted.
+- [x] P3 internal checkpoint passed.
 
-### Administrator authorization and audit
+### P4.0 — Migration, OWNER, idempotency, and audit foundation
 
-- [ ] Enforce active `ADMIN` role on every `/api/admin/*` route.
-- [ ] Revoke sessions immediately after Administrator demotion or disablement.
-- [ ] Implement append-only `admin_audit_log`.
-- [ ] Require stable reason and idempotency key for Administrator mutations.
-- [ ] Record actor, target, action, reason, correlation ID, and redacted
-  before/after projection.
-- [ ] Keep v0.1 free of a browser-accessible role promotion/demotion API.
-- [ ] Document the reviewed private-server first-Administrator transaction.
+- [x] Add an Alembic migration compatible with empty and existing v0.1 schemas.
+- [x] Add OWNER id configuration and ADMIN/OWNER capability projection without
+  adding an OWNER database role or email matching.
+- [x] Add permanent actor-scoped UUID idempotency with canonical request hashes,
+  replay-safe results, conflict detection, and concurrency protection.
+- [x] Add permanent append-only `admin_audit_log` with redacted before/after,
+  result/error, request/idempotency ids, IP digest, and bounded client data.
+- [x] Add immutable signed `quota_adjustment` and reversal linkage without
+  rewriting existing `quota_grant` balances.
+- [x] Extend Invitation persistence for batch, sequence, required expiry, and
+  keyed HMAC while retaining legacy redeemed rows.
+- [x] Prove raw codes, full email, Writer drafts, prompts, tokens, Artifact
+  bytes/paths, SQL, and stack traces cannot enter idempotency/audit payloads.
+- [x] Record and test the controlled `SYSTEM_BOOTSTRAP` OWNER procedure.
 
-### Administrator API
+### P4.1 — Identity, Users, roles, and signed quota
 
-- [ ] Implement dashboard summary projection.
-- [ ] Implement paginated User search.
-- [ ] Implement User suspension and restoration.
-- [ ] Implement audited quota grants.
-- [ ] Implement Invitation batch creation with independent single-use secrets.
-- [ ] Implement Invitation listing and disablement.
-- [ ] Implement Trip Attempt inspection according to accepted A0 retention scope.
-- [ ] Implement safe failure-detail inspection.
-- [ ] Implement audit-log inspection.
-- [ ] Implement archive inspection only if A0 explicitly accepts it.
-- [ ] Provide no generic SQL, table-name, column-name, or raw-query endpoint.
+- [x] Implement `GET /api/admin/me` with product identity/capabilities.
+- [x] Implement paginated User list/detail with fuzzy `q`, exact structured
+  filters, stable sorting, and masked list email.
+- [x] Implement audited/no-store full-email reveal.
+- [x] Implement disable/restore with ADMIN/OWNER matrix and immediate session
+  revocation; restoration creates no old session.
+- [x] Implement OWNER-only ADMIN grant/revoke and final-OWNER protection.
+- [x] Implement signed add/subtract, non-negative balance rejection, immutable
+  ledger, and exactly-once linked reversal.
+- [x] Test ACTIVE/DISABLED eligibility and missing/closed/de-identified target
+  rejection.
+
+### P4.2 — Invitation short-code batches
+
+- [x] Implement list/create/detail and irreversible whole-batch disable.
+- [x] Generate exact `YT-XXXX-XXXX` codes with secure randomness and the
+  non-ambiguous alphabet.
+- [x] Default to 50/30 days and enforce count 1-200 and expiry 1-90 days.
+- [x] Store keyed HMAC only; retry digest collisions safely.
+- [x] Disclose raw codes only in the first successful response; idempotent replay
+  returns the batch without codes.
+- [x] Implement JSON-body full-code lookup without URL/log/trace/audit leakage.
+- [x] Implement irreversible one-code disable and distinct
+  ACTIVE/EXPIRED/DISABLED/EXHAUSTED status.
+- [x] Preserve exactly-once registration redemption and legacy registration
+  audit compatibility.
+
+### P4.3 — Dashboard, reports, and audit query
+
+- [x] Implement frozen Dashboard metrics and server `as_of`.
+- [x] Implement Trip-generation trends, formulas, distributions, P50/P95, and
+  over-180-second metrics with explicit zero-denominator semantics.
+- [x] Implement structured preference aggregates, request-level multi-select
+  dedupe, canonical-place preference, aggregate-only distinct Users, and
+  `<3 -> OTHER`.
+- [x] Exclude raw notes, email, prompts, Writer text, generic BI, word cloud,
+  arbitrary SQL, and user-level preference drill-down.
+- [x] Implement allowlisted paginated audit-event query without bulk export.
+
+### P4.4 — Trip/archive/failure-draft/Artifact projection
+
+- [x] Inspect existing versioned Hermes internal HTTP for global jobs/steps,
+  failed drafts, structured results, and Artifact metadata/binary.
+- [x] If any required contract is absent, stop P4.4 and provide the minimal
+  service-authenticated contract; do not connect to Hermes databases or edit
+  the sibling repository.
+- [x] Implement permanent archive filters and 180-second/degraded exception
+  classification only if the Hermes contract exists.
+- [x] Implement audited/no-store unpublished failed-draft read with no
+  publish/success/share/export/Artifact/delete action.
+- [x] Implement read-only READY/EXPIRED `pdf`/`share_image` metadata and audited
+  download without storage-path exposure or a BFF truth source.
+
+### P4.5 — Contract and acceptance evidence
+
+- [x] OpenAPI contains every frozen endpoint, schema, filter, capability, and
+  stable error code.
+- [x] Visitor 401, USER 403, and complete ADMIN/OWNER matrix tests pass.
+- [x] Every mutation has authorization, UUID idempotency, concurrency,
+  transaction, failure-audit, and secret-redaction evidence.
+- [x] Session revocation, one-time code disclosure, concurrent redemption,
+  signed quota/reversal, de-identification, and Artifact read-only tests pass.
+- [x] Empty and existing-baseline Alembic upgrades pass on disposable
+  PostgreSQL.
+- [x] `uv run pytest` passes.
+- [x] `uv run ruff check .` passes.
+- [x] `uv run ruff format --check .` passes.
+- [x] `git diff --check` passes.
 
 ### P4 acceptance evidence
 
-- [ ] Visitor receives 401 and ordinary User receives 403 for Administrator APIs.
-- [ ] Every Administrator mutation has authorization, replay/idempotency,
-  negative-ownership, and audit evidence.
-- [ ] Audit records contain no secrets or raw personal snapshots.
-- [ ] OpenAPI covers the accepted Administrator frontend data contract.
-- [ ] P4 internal checkpoint passes before separately authorized frontend integration.
+- [x] P4.0-P4.5 each pass serially with PostgreSQL/security evidence.
+- [x] No generic SQL/table/field/query endpoint, sibling edit, production
+  connection, deployment, commit, or push occurs.
+- [x] Set status to `Implementation Complete / Acceptance Pending`.
 
 ## P5 — Frontend Integration Workstreams
 
@@ -513,7 +581,8 @@ Entry requirement:
 - [ ] Generate or validate TypeScript contracts from BFF OpenAPI.
 - [ ] Implement session bootstrap and ADMIN_REQUIRED handling.
 - [ ] Implement the accepted page map and loading/empty/error states.
-- [ ] Add confirmation and reason capture to destructive or sensitive actions.
+- [ ] Add explicit result-labelled action controls and reason capture without a
+  separate confirmation, recent re-authentication, or MFA protocol.
 - [ ] Ensure no database, DirectMail, Hermes, or internal credentials enter the
   browser bundle.
 - [ ] Verify no ordinary-User account/quota/history surface exists.
