@@ -1,6 +1,6 @@
 # Release Roadmap
 
-Status: **v0.1.1 Production Artifact Deployed / Source Integration Pushed / Main Merge Pending / Formal UAT Not Recorded**
+Status: **v0.1.1 Production Artifact Deployed / Source Integration Complete on Main / Formal UAT Not Recorded**
 
 Current recovery gate: [v0.1.1 Source Integration Gate](v0.1.1-source-integration-gate.md).
 

@@ -4,13 +4,13 @@
 之间，负责邀请制邮箱登录、服务端会话、攻略归属、公测生成额度、七天攻略
 历史，以及 `travel-admin` 所需的管理员接口和操作审计。
 
-仓库主线：**`main` / `origin/main` = `87bdc65`，仍不包含 v0.1.1 源码**
+仓库主线：**`main` 已包含并记录 v0.1.1 恢复源码**
 
 生产状态：**v0.1.1 Verified Artifact Deployed / Formal User UAT Not Recorded**。
-生产运行时已包含 Unique Display Name 与 Alembic `0009`。经验证的恢复源码现位于
-已推送分支 `codex/v0.1.1-source-integration`，状态为 **Source Integration Committed
-and Pushed / Main Merge Pending / Production Artifact Unchanged**。由于尚未合并到
-`main`，从 `main` 重建 BFF 仍存在覆盖线上 v0.1.1 的风险。
+生产运行时已包含 Unique Display Name 与 Alembic `0009`，经验证的恢复源码也已
+快进合入并推送 `main`。当前状态为 **Source Integration Complete on Main /
+Production Artifact Unchanged / Formal User UAT Pending**。本次源码恢复不需要重新
+部署；后续生产操作仍须重新验证运行时与回滚资产。
 当前门禁见 [v0.1.1 Source Integration Gate](docs/v0.1.1-source-integration-gate.md)。
 
 ## Boundary

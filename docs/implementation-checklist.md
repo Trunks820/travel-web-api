@@ -1,6 +1,6 @@
 # Implementation Checklist
 
-Status: **v0.1.1 Source Integration Pushed / Main Merge Pending / Production Artifact Unchanged**
+Status: **v0.1.1 Source Integration Complete on Main / Production Artifact Unchanged / Formal User UAT Pending**
 
 Repository state and recovery sequence: [v0.1.1 Source Integration Gate](v0.1.1-source-integration-gate.md).
 
