@@ -8,9 +8,9 @@
 
 生产状态：**v0.1.1 Verified Artifact Deployed / Formal User UAT Not Recorded**。
 生产运行时已包含 Unique Display Name 与 Alembic `0009`。经验证的恢复源码现位于
-未提交分支 `codex/v0.1.1-source-integration`，状态为 **Source Integration Accepted /
-Commit Pending / Deployment Pending**；尚未提交或推送到仓库主线。从 `main` 重建
-BFF 仍存在覆盖线上 v0.1.1 的风险。
+已推送分支 `codex/v0.1.1-source-integration`，状态为 **Source Integration Committed
+and Pushed / Main Merge Pending / Production Artifact Unchanged**。由于尚未合并到
+`main`，从 `main` 重建 BFF 仍存在覆盖线上 v0.1.1 的风险。
 当前门禁见 [v0.1.1 Source Integration Gate](docs/v0.1.1-source-integration-gate.md)。
 
 ## Boundary

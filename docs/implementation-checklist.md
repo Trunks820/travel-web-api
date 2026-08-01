@@ -1,6 +1,6 @@
 # Implementation Checklist
 
-Status: **v0.1.1 Source Integration Accepted / Commit Pending / Deployment Pending**
+Status: **v0.1.1 Source Integration Pushed / Main Merge Pending / Production Artifact Unchanged**
 
 Repository state and recovery sequence: [v0.1.1 Source Integration Gate](v0.1.1-source-integration-gate.md).
 

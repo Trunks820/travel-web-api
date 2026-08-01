@@ -1,6 +1,6 @@
 # Database and Quota
 
-Status: **v0.1.1 Database Contract Accepted / Production Migration `0009` / Source Integration Accepted / Commit Pending**
+Status: **v0.1.1 Database Contract Accepted / Production Migration `0009` / Source Integration Pushed / Main Merge Pending**
 
 Repository state and recovery stop rules: [v0.1.1 Source Integration Gate](v0.1.1-source-integration-gate.md).
 

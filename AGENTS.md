@@ -17,16 +17,16 @@ Accepted stack:
 - Pydantic Settings
 - pytest
 
-Current repository gate: **Source Integration Accepted / Commit Pending /
-Deployment Pending**.
+Current repository gate: **Source Integration Committed and Pushed / Main Merge
+Pending / Production Artifact Unchanged**.
 
 Production runs a verified v0.1.1 artifact with Alembic `0009`, but repository
 `main` / `origin/main` remains at `87bdc65` without the Profile implementation.
-The uncommitted branch `codex/v0.1.1-source-integration` contains the recovered,
-artifact-matched source and has passed the local source-integration Gate. Do not
-build or deploy the BFF from `main`; follow
-`docs/v0.1.1-source-integration-gate.md`. Commit, push, and deployment each
-require their own explicit authorization.
+The branch `codex/v0.1.1-source-integration` contains the recovered,
+artifact-matched source, has passed the local source-integration Gate, and is
+pushed to `origin`. Do not build or deploy the BFF from `main`; follow
+`docs/v0.1.1-source-integration-gate.md`. Main-branch merge and any later
+deployment each require their own explicit authorization.
 
 The user accepted Hermes P4.4-H1 and the BFF P4.0-P4.5 implementation and
 internal acceptance checkpoints are complete. v0.2, sibling-repository edits,

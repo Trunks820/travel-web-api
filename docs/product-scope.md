@@ -1,6 +1,6 @@
 # Product Scope
 
-Status: **v0.1.1 Product Contract Accepted / Source Integration Accepted / Commit Pending**
+Status: **v0.1.1 Product Contract Accepted / Source Integration Pushed / Main Merge Pending**
 
 Repository state and recovery stop rules: [v0.1.1 Source Integration Gate](v0.1.1-source-integration-gate.md).
 
