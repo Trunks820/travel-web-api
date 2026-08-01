@@ -18,7 +18,7 @@ Accepted stack:
 - pytest
 
 Current repository gate: **Source Integration Complete on Main / Production
-Artifact Unchanged / Formal User UAT Pending**.
+Artifact Unchanged / Owner Live UAT Accepted**.
 
 Production runs a verified v0.1.1 artifact with Alembic `0009`. Repository
 `main` now contains the recovered, artifact-matched Profile implementation and

@@ -1,6 +1,6 @@
 # Implementation and Acceptance Plan
 
-Status: **v0.1.1 Verified Implementation Artifact Deployed / Source Integration Complete on Main / Formal User UAT Pending**
+Status: **v0.1.1 Verified Implementation Artifact Deployed / Source Integration Complete on Main / Owner Live UAT Accepted**
 
 Repository state and recovery sequence: [v0.1.1 Source Integration Gate](v0.1.1-source-integration-gate.md).
 

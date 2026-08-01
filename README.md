@@ -6,10 +6,10 @@
 
 仓库主线：**`main` 已包含并记录 v0.1.1 恢复源码**
 
-生产状态：**v0.1.1 Verified Artifact Deployed / Formal User UAT Not Recorded**。
+生产状态：**v0.1.1 Verified Artifact Deployed / Owner Live UAT Accepted**。
 生产运行时已包含 Unique Display Name 与 Alembic `0009`，经验证的恢复源码也已
 快进合入并推送 `main`。当前状态为 **Source Integration Complete on Main /
-Production Artifact Unchanged / Formal User UAT Pending**。本次源码恢复不需要重新
+Production Artifact Unchanged / Owner Live UAT Accepted**。本次源码恢复不需要重新
 部署；后续生产操作仍须重新验证运行时与回滚资产。
 当前门禁见 [v0.1.1 Source Integration Gate](docs/v0.1.1-source-integration-gate.md)。
 
