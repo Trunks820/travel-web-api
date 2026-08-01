@@ -395,7 +395,8 @@ async def clean_database(pg_engine):
         await connection.execute(
             text(
                 "TRUNCATE TABLE "
-                "admin_audit_log, quota_adjustment, admin_idempotency, "
+                "display_name_quarantine, admin_audit_log, quota_adjustment, "
+                "admin_idempotency, "
                 "trip_quota_entry, user_trip, "
                 "email_otp_challenge, invitation_redemption, user_session, "
                 "quota_grant, user_identity, invitation, invitation_batch, app_user "

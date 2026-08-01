@@ -7,6 +7,7 @@ import pytest
 from src.admin.audit import append_admin_audit
 from src.db.models import AppUser, UserSession, UserTrip
 from src.security.secrets import hash_secret, new_opaque_id
+from tests.factories import unique_display_name_fields
 
 ADMIN_ORIGIN = "https://admin.kakarot8.com"
 
@@ -19,6 +20,7 @@ async def _admin_account(session_factory, test_settings):
             public_id=new_opaque_id("usr_"),
             status="ACTIVE",
             role="ADMIN",
+            **unique_display_name_fields(),
         )
         session.add(user)
         await session.flush()

@@ -1,6 +1,8 @@
 # Architecture and Security
 
-Status: **v0.1 Implementation Complete / Acceptance Pending**
+Status: **v0.1.1 Architecture Contract Accepted / Source Integration Accepted / Commit Pending**
+
+Repository state and recovery stop rules: [v0.1.1 Source Integration Gate](v0.1.1-source-integration-gate.md).
 
 ## 1. Target Topology
 
@@ -108,6 +110,11 @@ One `app_user` may have more than one verified identity, but each
 `(provider, provider_subject)` belongs to exactly one User. The BFF never
 auto-merges Users by matching email, username, display name, or avatar.
 
+v0.1.1 assigns every existing User one globally unique mutable Display Name.
+The normalized uniqueness key is presentation-only and never replaces
+`app_user.id`, `public_id`, or `(provider, provider_subject)`. Registration,
+rename, disable/restore, and Account Closure preserve this separation.
+
 For a new Linux.do User, the callback verifies `active=true`,
 `silenced=false`, and `trust_level >= 1`. The trust-level minimum is an initial
 registration gate only; an existing linked User may later log in at L0, while
@@ -180,7 +187,7 @@ It must not send:
 
 - email
 - phone number
-- display name unless separately approved for a non-generation audit purpose
+- display name
 - identity-provider subject
 - session token
 - membership or billing data
@@ -203,6 +210,8 @@ Account Closure is distinct from logout and disablement:
 - Account Closure deletes identities and sessions and prevents future login
 - Trip Attempts remain as de-identified Content Archive records
 - owner references and other reversible identity mappings are removed
+- the current Display Name enters a no-owner 15-day keyed-digest quarantine;
+  plaintext and Display Name-to-User mappings are not retained
 - free-text fields are removed or redacted when they may retain personal data
 - generated trip content, structured non-identifying input, terminal outcome,
   stable failure category, and quality telemetry remain indefinitely
@@ -221,6 +230,7 @@ that are still within the seven-day user-visible window.
 | Invitation check / email OTP | Allowed with rate limits | Allowed | Allowed | Allowed |
 | Linux.do OAuth start/callback (v0.2) | Allowed with admission controls | Allowed for explicit linking | N/A | Same User rule |
 | `GET /api/me` | 401 | Allowed | N/A |
+| `PATCH /api/me/profile` (v0.1.1) | 401 | Allowed for own Display Name | Cannot target another User | Same User rule |
 | Submit trip | 401 | Allowed if credit permits | N/A | Same user rule |
 | Job status/SSE | 401 | Allowed | 404 | Admin projection only |
 | Trip result | 401 | Allowed | 404 | Admin projection only |

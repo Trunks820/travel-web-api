@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_env: Literal["development", "test", "production"] = "development"
-    app_version: str = "0.1.0"
+    app_version: str = "0.1.1"
     log_level: str = "INFO"
 
     database_url: str = "postgresql+asyncpg://travel_web_api:replace-me@127.0.0.1:5432/travel_web"

@@ -8,10 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.errors import ApiError
 from src.auth.dependencies import AuthContext, get_current_auth
-from src.auth.schemas import SendEmailCodeRequest, VerifyEmailCodeRequest
+from src.auth.schemas import CurrentUserResponse, SendEmailCodeRequest, VerifyEmailCodeRequest
 from src.auth.service import revoke_cookie_session, send_auth_code, verify_auth_code
 from src.db.models import UserIdentity, UserTrip
 from src.db.session import get_db_session
+from src.profile.service import change_available_at
 from src.quota.service import ACTIVE_TRIP_STATUSES, quota_snapshot
 
 router = APIRouter(prefix="/api")
@@ -96,7 +97,7 @@ async def email_verify(
     raise ApiError(status, code, message)
 
 
-@router.get("/me")
+@router.get("/me", response_model=CurrentUserResponse)
 async def me(
     auth: AuthContext = CURRENT_AUTH,
     db: AsyncSession = DB_SESSION,
@@ -119,6 +120,9 @@ async def me(
         "user": {
             "user_id": auth.user.public_id,
             "display_name": auth.user.display_name,
+            "display_name_change_available_at": change_available_at(
+                auth.user.display_name_changed_at
+            ),
             "masked_email": _mask_email(email) if email else None,
         },
         "quota": quota.public(),

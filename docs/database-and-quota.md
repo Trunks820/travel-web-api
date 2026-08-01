@@ -1,6 +1,8 @@
 # Database and Quota
 
-Status: **v0.1 Implementation Complete / Acceptance Pending**
+Status: **v0.1.1 Database Contract Accepted / Production Migration `0009` / Source Integration Accepted / Commit Pending**
+
+Repository state and recovery stop rules: [v0.1.1 Source Integration Gate](v0.1.1-source-integration-gate.md).
 
 ## 1. Database Boundary
 
@@ -31,9 +33,49 @@ reviewable deployment steps.
 | `public_id` | TEXT UNIQUE | opaque API identifier |
 | `status` | TEXT | `ACTIVE`, `DISABLED` |
 | `role` | TEXT | `USER`, `ADMIN` |
-| `display_name` | TEXT NULL | optional product display |
+| `display_name` | TEXT NOT NULL | v0.1.1 globally unique mutable product name |
+| `display_name_normalized` | TEXT UNIQUE NOT NULL | NFKC-normalized, case-folded uniqueness key |
+| `display_name_changed_at` | TIMESTAMPTZ NULL | null until the first manual rename |
 | `created_at` | TIMESTAMPTZ | |
 | `updated_at` | TIMESTAMPTZ | |
+
+v0.1.1 backfills every existing null, invalid, or reserved `display_name` with
+`user_` plus ten cryptographically random lowercase ASCII letters or digits
+before setting the columns `NOT NULL`. Registration generates the same kind of
+default in the existing User-creation transaction. A valid existing name is
+preserved when its normalized key is unique; for a pre-existing normalized
+collision, the earliest `(created_at, id)` User keeps the name and every later
+User receives a generated default.
+The application may pre-check availability for a friendly error, but the
+PostgreSQL unique constraint on `display_name_normalized` is the final authority
+for concurrent registration and rename attempts.
+
+`display_name` is presentation data. User identity, authorization, ownership,
+Administrator audit targets, and future Login Identity linking continue to use
+the immutable internal/public User ids.
+
+### 2.1.1 `display_name_quarantine`
+
+| Column | Type | Notes |
+|---|---|---|
+| `name_digest` | BYTEA PK | keyed digest of the normalized former name |
+| `expires_at` | TIMESTAMPTZ | exactly 15 days after rename or Account Closure |
+| `created_at` | TIMESTAMPTZ | quarantine creation time |
+
+The quarantine stores no plaintext Display Name, User id, identity reference,
+reason, or ownership mapping. Availability checks derive the same purpose-bound
+keyed digest and treat an unexpired row as unavailable. Expired rows do not
+block a claim and may be deleted by bounded maintenance cleanup.
+
+Renaming is one transaction that locks the User, re-checks the seven-day manual
+rename cooldown, rejects reserved or quarantined names, inserts the former-name
+digest with a 15-day expiry, and updates the Display Name. A request that sets
+the already stored presentation value is a successful no-op and does not start
+a cooldown or quarantine entry. A presentation-only change with the same
+normalized key counts as a rename but does not quarantine that still-owned key.
+
+A disabled User retains all three Display Name fields. Disable/restore therefore
+cannot transfer a name to another User.
 
 ### 2.2 `user_identity`
 
@@ -406,7 +448,9 @@ Account Closure is a transactional workflow that:
 6. removes or redacts personal information from free-text request fields
 7. deletes or irreversibly de-identifies invitation, quota, and audit
    references that would reconnect the archive to the User
-8. physically deletes the `app_user` row after dependent identity cleanup
+8. inserts only the current normalized Display Name's keyed digest into
+   `display_name_quarantine` with a 15-day expiry and no User mapping
+9. physically deletes the `app_user` row after dependent identity cleanup
 
 Account Closure does not call `hermes-travel` to delete generated content.
 `hermes-travel` content is retained under its own audit policy and must not
@@ -441,3 +485,9 @@ P2 cannot pass without PostgreSQL integration evidence for:
 15. Account Closure nulls or irreversibly de-identifies Administrator
     idempotency, adjustment, Invitation, and audit actor/target references so
     retained rows cannot reconstruct the closed identity
+16. concurrent Display Name claims produce exactly one owner and a stable
+    unavailable result for every loser
+17. case/full-width variants collide on `display_name_normalized`
+18. rename and Account Closure each quarantine the former-name digest for
+    exactly 15 days without retaining plaintext or a User mapping
+19. disabled Users retain their Display Name through restoration

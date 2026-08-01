@@ -13,6 +13,7 @@ from src.db.models import (
     AdminAuditLog,
     AdminIdempotency,
     AppUser,
+    DisplayNameQuarantine,
     EmailOtpChallenge,
     Invitation,
     InvitationBatch,
@@ -24,9 +25,11 @@ from src.db.models import (
     UserSession,
     UserTrip,
 )
+from src.profile.display_names import former_name_digest
 from src.quota.service import reserve_trip, settle_trip
 from src.security.secrets import hash_secret, new_opaque_id, new_session_token
 from src.trips.schemas import normalized_request_hash
+from tests.factories import unique_display_name_fields
 
 pytestmark = pytest.mark.integration
 
@@ -49,6 +52,7 @@ async def _seed_user(
             role="USER",
             created_at=now,
             updated_at=now,
+            **unique_display_name_fields(),
         )
         session.add(user)
         await session.flush()
@@ -424,6 +428,10 @@ async def test_closure_deletes_identity_and_keeps_only_deidentified_archive(
         visible_until=now + timedelta(days=7),
     )
     subject_hash = admin_subject_hash(user.id, test_settings)
+    display_name_digest = former_name_digest(
+        user.display_name_normalized,
+        pepper=test_settings.secret_hash_pepper.get_secret_value(),
+    )
     async with session_factory() as session, session.begin():
         idempotency = AdminIdempotency(
             actor_user_id=user.id,
@@ -501,6 +509,10 @@ async def test_closure_deletes_identity_and_keeps_only_deidentified_archive(
         assert await session.scalar(select(func.count()).select_from(InvitationRedemption)) == 0
         assert await session.scalar(select(func.count()).select_from(EmailOtpChallenge)) == 0
         assert await session.scalar(select(func.count()).select_from(TripQuotaEntry)) == 0
+        quarantine = await session.get(DisplayNameQuarantine, display_name_digest)
+        assert quarantine is not None
+        assert len(quarantine.name_digest) == 32
+        assert quarantine.expires_at - quarantine.created_at == timedelta(days=15)
         idempotency = await session.scalar(select(AdminIdempotency))
         adjustment = await session.scalar(select(QuotaAdjustment))
         batch = await session.scalar(select(InvitationBatch))

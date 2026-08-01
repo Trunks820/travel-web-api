@@ -110,7 +110,7 @@ class AdminUserProjection(BaseModel):
     status: Literal["ACTIVE", "DISABLED"]
     role: Literal["USER", "ADMIN"]
     product_identity: Literal["USER", "ADMIN", "OWNER"]
-    display_name: str | None
+    display_name: str
     masked_email: str | None
     quota: AdminQuotaProjection
     created_at: datetime

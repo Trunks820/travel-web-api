@@ -25,6 +25,7 @@ from src.quota.service import (
 from src.security.secrets import hash_secret, new_opaque_id, new_session_token
 from src.trips.reconciliation import reconcile_bounded
 from src.trips.schemas import normalized_request_hash
+from tests.factories import unique_display_name_fields
 
 pytestmark = pytest.mark.integration
 
@@ -93,6 +94,7 @@ async def _seed_user(
             role="USER",
             created_at=now,
             updated_at=now,
+            **unique_display_name_fields(),
         )
         session.add(user)
         await session.flush()

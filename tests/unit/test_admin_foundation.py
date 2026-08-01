@@ -26,6 +26,9 @@ def _auth(user_id: uuid.UUID, *, role: str = "USER") -> AuthContext:
             public_id=f"usr_{user_id.hex}",
             status="ACTIVE",
             role=role,
+            display_name="test_admin",
+            display_name_normalized="test_admin",
+            display_name_changed_at=None,
         ),
         session=UserSession(
             id=uuid.uuid4(),

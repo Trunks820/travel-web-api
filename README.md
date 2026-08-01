@@ -4,11 +4,14 @@
 之间，负责邀请制邮箱登录、服务端会话、攻略归属、公测生成额度、七天攻略
 历史，以及 `travel-admin` 所需的管理员接口和操作审计。
 
-当前状态：**v0.1 Implementation Complete / Acceptance Pending**
+仓库主线：**`main` / `origin/main` = `87bdc65`，仍不包含 v0.1.1 源码**
 
-当前执行状态：**P4.0-P4.5 Complete / Deployment Pending**。
-v0.1 P0-P3 本地验收已通过；P4 等待 `travel-admin` A0 产品冻结。v0.2、
-兄弟仓库修改和部署仍是独立门禁。
+生产状态：**v0.1.1 Verified Artifact Deployed / Formal User UAT Not Recorded**。
+生产运行时已包含 Unique Display Name 与 Alembic `0009`。经验证的恢复源码现位于
+未提交分支 `codex/v0.1.1-source-integration`，状态为 **Source Integration Accepted /
+Commit Pending / Deployment Pending**；尚未提交或推送到仓库主线。从 `main` 重建
+BFF 仍存在覆盖线上 v0.1.1 的风险。
+当前门禁见 [v0.1.1 Source Integration Gate](docs/v0.1.1-source-integration-gate.md)。
 
 ## Boundary
 
@@ -40,6 +43,9 @@ POI 数据治理；这些仍由 `hermes-travel` 负责。
 
 攻略对用户展示七天，随后进入永久内部内容归档。账号注销删除邮箱、身份和
 Session，并解除攻略归档与用户的关联；脱敏后的攻略内容和质量数据继续保留。
+
+v0.1.1 只增加全局唯一、可修改的 Display Name：注册时生成默认名称，用户
+可按冷却规则修改，旧名保护 15 天。它不参与登录、权限、所有权或账号合并。
 
 v0.2 计划增加 Linux.do OAuth：活跃、未禁言且首次注册时达到 L1 的
 Linux.do 用户免邀请码注册。Google、支付、订阅和公开社区均不属于 v0.2。
@@ -87,3 +93,4 @@ PostgreSQL 集成测试拒绝非 `travel_web_test*` 数据库，不能用 SQLite
 - [J0.5 BFF preparation evidence](docs/acceptance/j0.5-bff-integration-evidence.md)
 - [J1 SSE non-terminal EOF repair evidence](docs/acceptance/j1-sse-non-terminal-eof-repair-evidence.md)
 - [v0.1 and v0.2 release roadmap](docs/release-roadmap.md)
+- [v0.1.1 source integration gate](docs/v0.1.1-source-integration-gate.md)

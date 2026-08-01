@@ -8,6 +8,7 @@ from sqlalchemy import select
 from src.db.models import AdminAuditLog, AppUser, UserSession
 from src.integrations.hermes import HermesBusinessError
 from src.security.secrets import hash_secret, new_opaque_id
+from tests.factories import unique_display_name_fields
 
 ADMIN_ORIGIN = "https://admin.kakarot8.com"
 
@@ -20,6 +21,7 @@ async def _account(session_factory, settings, *, role: str):
             public_id=new_opaque_id("usr_"),
             status="ACTIVE",
             role=role,
+            **unique_display_name_fields(),
         )
         session.add(user)
         await session.flush()

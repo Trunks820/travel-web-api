@@ -17,7 +17,16 @@ Accepted stack:
 - Pydantic Settings
 - pytest
 
-Current phase: **v0.1 Implementation Complete / Acceptance Pending**.
+Current repository gate: **Source Integration Accepted / Commit Pending /
+Deployment Pending**.
+
+Production runs a verified v0.1.1 artifact with Alembic `0009`, but repository
+`main` / `origin/main` remains at `87bdc65` without the Profile implementation.
+The uncommitted branch `codex/v0.1.1-source-integration` contains the recovered,
+artifact-matched source and has passed the local source-integration Gate. Do not
+build or deploy the BFF from `main`; follow
+`docs/v0.1.1-source-integration-gate.md`. Commit, push, and deployment each
+require their own explicit authorization.
 
 The user accepted Hermes P4.4-H1 and the BFF P4.0-P4.5 implementation and
 internal acceptance checkpoints are complete. v0.2, sibling-repository edits,
@@ -60,6 +69,8 @@ This repository owns:
 - administrator APIs and audit logs used by `travel-admin`
 - server-configured `OWNER` product identity projected from an immutable
   `app_user.id` without adding an `OWNER` database role
+- a globally unique mutable Display Name that never replaces immutable User or
+  Login Identity identifiers
 - immutable signed quota adjustments, short-code Invitation batches,
   operational reports, and permanent archive administration
 
@@ -99,6 +110,8 @@ integration boundary is versioned internal HTTP.
   authenticated, audited, and returned with `Cache-Control: no-store`.
 - Never pass email, phone number, login-provider subject, or raw session data
   to `hermes-travel`.
+- Display Name is not a login credential, authorization or ownership key,
+  account-linking signal, or Hermes field.
 - Seven-day Trip History expiry is an archive transition, not deletion.
 - Account Closure deletes identity/session data but preserves only
   de-identified trip content; never retain a reversible owner mapping.
@@ -161,6 +174,11 @@ PostgreSQL. In-memory substitutes are not sufficient for:
 - exactly-once quota release
 - session revocation
 - trip ownership enforcement
+
+v0.1.1 Display Name state transitions additionally require PostgreSQL
+integration tests for concurrent normalized-name claims, rename cooldown,
+15-day former-name quarantine, Account Closure de-identification, and
+disable/restore retention.
 
 Every mutating endpoint must have authorization and negative ownership tests
 where an owned object exists. Trip, quota, and Administrator mutations also

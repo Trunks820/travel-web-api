@@ -96,7 +96,7 @@ def test_health_is_liveness_only_and_has_request_id() -> None:
     assert response.json() == {
         "ok": True,
         "service": "travel-web-api",
-        "version": "0.1.0",
+        "version": "0.1.1",
     }
     assert response.headers["x-request-id"]
 
@@ -153,10 +153,21 @@ def test_openapi_metadata_is_the_frontend_contract_boundary() -> None:
         response = client.get("/openapi.json")
     assert response.status_code == 200
     assert response.json()["info"]["title"] == "YunTu Travel Web API"
-    assert response.json()["info"]["version"] == "0.1.0"
+    assert response.json()["info"]["version"] == "0.1.1"
     paths = response.json()["paths"]
     assert "/api/me/trips" in paths
     assert "/api/me/closure/confirm" in paths
+    assert paths["/api/me"]["get"]["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/CurrentUserResponse"
+    }
+    assert "patch" in paths["/api/me/profile"]
+    profile_operation = paths["/api/me/profile"]["patch"]
+    assert profile_operation["requestBody"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/DisplayNameUpdateRequest"
+    }
+    assert profile_operation["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ProfileUpdateResponse"
+    }
     implemented_admin_paths = {
         "/api/admin/me",
         "/api/admin/dashboard",

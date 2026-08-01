@@ -15,6 +15,7 @@ from src.db.models import (
     UserSession,
 )
 from src.security.secrets import hash_secret, new_opaque_id
+from tests.factories import unique_display_name_fields
 
 ADMIN_ORIGIN = "https://admin.kakarot8.com"
 
@@ -34,6 +35,7 @@ async def _account(
             public_id=new_opaque_id("usr_"),
             status=status,
             role=role,
+            **unique_display_name_fields(),
         )
         session.add(user)
         await session.flush()
@@ -131,6 +133,7 @@ async def test_owner_user_role_disable_restore_email_and_idempotency(
         test_settings,
         email="target@example.com",
     )
+    target_display_name = target.display_name
     test_settings.admin_owner_user_id = owner.id
     headers = _headers(test_settings, owner_token)
 
@@ -138,6 +141,12 @@ async def test_owner_user_role_disable_restore_email_and_idempotency(
     assert listing.status_code == 200
     assert listing.json()["items"][0]["masked_email"] == "t***@example.com"
     assert "target@example.com" not in listing.text
+    display_name_listing = await client.get(
+        f"/api/admin/users?q={target_display_name}",
+        headers=headers,
+    )
+    assert display_name_listing.status_code == 200
+    assert display_name_listing.json()["items"][0]["user_id"] == target.public_id
 
     email = await client.get(f"/api/admin/users/{target.public_id}/email", headers=headers)
     assert email.status_code == 200
@@ -192,6 +201,10 @@ async def test_owner_user_role_disable_restore_email_and_idempotency(
     )
     assert restore.status_code == 200
     assert restore.json()["status"] == "ACTIVE"
+    async with session_factory() as session:
+        restored_target = await session.get(AppUser, target.id)
+        assert restored_target is not None
+        assert restored_target.display_name == target_display_name
     assert (
         await client.get("/api/me", headers=_headers(test_settings, target_token))
     ).status_code == 401

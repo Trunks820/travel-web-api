@@ -11,6 +11,11 @@ A person represented by one hosted-product account and one or more verified
 **Login Identities**.
 _Avoid_: Customer, member, account
 
+**Display Name**:
+A mutable, globally unique product name assigned to exactly one existing **User**.
+It is never a **Login Identity**, authorization key, ownership key, or account-linking signal.
+_Avoid_: Nickname, login name, User ID
+
 **Login Identity**:
 A verified external or first-party identity linked to exactly one **User**,
 such as an email OTP identity or an immutable Linux.do identity.
@@ -100,3 +105,9 @@ _Avoid_: Logout, suspension, trip deletion
 > **Developer:** I will apply Linux.do Community Admission once, link the
 > immutable Login Identity to one User, and grant the initial Beta Generation
 > Credits without consuming an Invitation.
+>
+> **Operator:** This User changed their Display Name.
+>
+> **Developer:** I will preserve the same User, Login Identities, permissions,
+> Trip Attempts, and audit ownership because the Display Name is only a mutable
+> product name.

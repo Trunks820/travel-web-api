@@ -1,6 +1,8 @@
 # Implementation and Acceptance Plan
 
-Status: **v0.1 Implementation Complete / Acceptance Pending**
+Status: **v0.1.1 Verified Implementation Artifact Deployed / Source Integration Accepted / Commit Pending**
+
+Repository state and recovery sequence: [v0.1.1 Source Integration Gate](v0.1.1-source-integration-gate.md).
 
 The project advances strictly through D0 and P0-P6. D0, sibling-frontend work,
 and P6 deployment are hard user-authorization gates. Within one explicitly
@@ -405,6 +407,75 @@ Exit status:
 
 `Deployment Accepted`
 
+## v0.1.1 — Unique Display Name Delivery
+
+v0.1.1 is a new strict serial slice after the completed v0.1 implementation.
+It does not reopen or renumber the accepted v0.1 P0-P4 checkpoints.
+
+### V011-D0 — Documentation Freeze
+
+- freeze Display Name terminology, format, normalization, reserved-name policy,
+  seven-day rename cooldown, and 15-day former-name quarantine
+- freeze database, API, Account Closure, Administrator search, and
+  sibling-frontend boundaries
+- accept migration and rollback/forward-repair behavior before code
+
+Exit status: `Documentation Accepted / Implementation Pending`.
+
+### V011-P0 — Schema and Domain Foundation
+
+- add `app_user.display_name_normalized` and `display_name_changed_at`
+- add the no-owner `display_name_quarantine` table
+- preserve valid unique existing names, deterministically resolve any existing
+  normalized collision, and backfill generated defaults before making Display
+  Name fields non-null
+- add the normalized unique constraint and required expiry index
+- implement one canonical validator/normalizer and purpose-bound former-name
+  digest
+
+Acceptance requires empty-database and existing-v0.1 Alembic upgrade evidence on
+disposable PostgreSQL, including duplicate-normalization and downgrade or
+forward-repair behavior.
+
+### V011-P1 — Registration and Existing-User Defaults
+
+- generate a collision-safe `user_`-prefixed default in the User-creation
+  transaction
+- preserve exactly-once Invitation redemption, initial-credit grant, and Session
+  creation
+- ensure every existing User has one valid unique default after migration
+- return a non-null Display Name from `/api/me`
+
+### V011-P2 — Self-Service Rename
+
+- implement authenticated `PATCH /api/me/profile`
+- enforce format, reserved names, normalized uniqueness, seven-day cooldown, and
+  15-day former-name quarantine transactionally
+- treat an exact replay as a no-op and make concurrent claims deterministic
+- add explicit response models and stable Display Name error codes
+
+### V011-P3 — Closure and Administrator Projection
+
+- quarantine only the no-owner former-name digest during Account Closure before
+  deleting `app_user`
+- retain the Display Name while a User is disabled and through restoration
+- include Display Name in the existing trimmed, case-insensitive Administrator
+  User search without adding an Administrator rename mutation
+- keep Administrator actions and audit ownership keyed by immutable User ids
+
+### V011-P4 — BFF Acceptance
+
+- run unit, disposable-PostgreSQL integration, migration, concurrency, closure,
+  authorization, OpenAPI, and full-regression checks
+- prove no name becomes a login, role, ownership, linking, or Hermes input
+- record `Implementation Complete / Acceptance Pending`
+
+### V011-F1 — Separate `travel-web` Integration Gate
+
+The main-site header/profile UI may display and edit the accepted Display Name
+only in a separately reviewed sibling-repository diff. BFF acceptance does not
+authorize that edit, deployment, commit, or push.
+
 ## Protected Scope
 
 Until a phase explicitly opens it:
@@ -443,9 +514,11 @@ Resolved:
    Closure interfaces belong to `travel-web`; `travel-admin` is operations-only
 10. v0.2 is limited to Linux.do L1 Community Admission and growth/quality
     validation; later commercial and community capabilities are deferred
+11. v0.1.1 is limited to one globally unique mutable Display Name per User,
+    with a seven-day manual rename cooldown and 15-day former-name quarantine
 
 Remaining:
 
-v0.1 decisions are resolved. The v0.2 Account Closure/re-registration
+v0.1 and v0.1.1 product decisions are resolved. The v0.2 Account Closure/re-registration
 anti-abuse choice remains `[ASK USER]` in `docs/release-roadmap.md` and does not
-block v0.1.
+block v0.1 or v0.1.1.

@@ -1,6 +1,8 @@
 # Product Scope
 
-Status: **v0.1 Implementation Complete / Acceptance Pending**
+Status: **v0.1.1 Product Contract Accepted / Source Integration Accepted / Commit Pending**
+
+Repository state and recovery stop rules: [v0.1.1 Source Integration Gate](v0.1.1-source-integration-gate.md).
 
 ## 1. Problem
 
@@ -282,7 +284,43 @@ The Administrator A0 contract is frozen for v0.1:
   contract is absent, P4.4 stops with a minimal contract proposal; the BFF
   never connects to the Hermes database.
 
-## 9. v0.2 Product Boundary
+## 9. v0.1.1 Product Boundary
+
+v0.1.1 contains one user-facing capability: a globally unique, mutable
+**Display Name** for every existing User.
+
+- registration assigns `user_` plus ten cryptographically random lowercase
+  ASCII letters or digits, retrying on the database uniqueness constraint
+- existing Users without a Display Name receive a generated default
+- an authenticated User may update only their own Display Name
+- names accept Chinese characters, Latin letters, digits, and underscores and
+  are 2-24 characters after trimming and NFKC normalization
+- Unicode NFKC normalization and case folding produce the uniqueness key, so
+  case and full-width variants cannot claim separate names
+- PostgreSQL is the final uniqueness authority under concurrent rename attempts
+- reserved product, system, owner, administrator, official, and support names
+  cannot be claimed
+- the first manual rename has no cooldown; later renames are limited to once per
+  seven days
+- Administrator User search includes Display Name while Administrator writes do
+  not rename a User
+- a renamed Display Name is unavailable to every User for 15 days, then becomes
+  claimable again
+- Account Closure applies the same 15-day quarantine using only a non-reversible
+  normalized-name digest and expiry, with no retained User mapping
+- a disabled User keeps their Display Name so restoration cannot transfer the
+  name to another User
+
+Display Name is not a Login Identity, credential, immutable User identifier,
+authorization input, ownership input, account-linking signal, or Hermes field.
+It cannot be used to merge an email User with a future Linux.do identity.
+
+v0.1.1 explicitly excludes avatars, biographies, public profiles, public User
+search, `@mentions`, username login, Session/device management, and unrelated
+BFF optimization. `travel-web` display/edit integration remains a separately
+reviewed sibling-repository diff.
+
+## 10. v0.2 Product Boundary
 
 v0.2 is a Linux.do promotion-validation release, not a general public launch.
 It adds:

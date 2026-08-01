@@ -23,6 +23,7 @@ from src.db.models import (
     UserTrip,
 )
 from src.history.service import deidentify_trip_request
+from src.profile.service import quarantine_former_name
 from src.quota.service import ACTIVE_TRIP_STATUSES
 from src.security.secrets import secret_matches
 
@@ -96,6 +97,12 @@ async def close_account(
             if active is not None:
                 outcome = "ACTIVE_TRIP_IN_PROGRESS"
             else:
+                await quarantine_former_name(
+                    session,
+                    settings,
+                    normalized_name=user.display_name_normalized,
+                    now=now,
+                )
                 subject_hash = admin_subject_hash(user.id, settings)
                 public_user_id = user.public_id
                 trips = list(

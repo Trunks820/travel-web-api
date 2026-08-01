@@ -37,7 +37,10 @@ class AppUser(Base):
     public_id: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="ACTIVE")
     role: Mapped[str] = mapped_column(String(16), nullable=False, default="USER")
-    display_name: Mapped[str | None] = mapped_column(String(120))
+    display_name: Mapped[str] = mapped_column(String(24), nullable=False)
+    display_name_normalized: Mapped[str] = mapped_column(String(96), unique=True, nullable=False)
+
+    display_name_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -50,6 +53,18 @@ class AppUser(Base):
     )
     sessions: Mapped[list[UserSession]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class DisplayNameQuarantine(Base):
+    __tablename__ = "display_name_quarantine"
+
+    name_digest: Mapped[bytes] = mapped_column(LargeBinary(32), primary_key=True)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 

@@ -1,6 +1,8 @@
 # Implementation Checklist
 
-Status: **v0.1 Implementation Complete / Acceptance Pending**
+Status: **v0.1.1 Source Integration Accepted / Commit Pending / Deployment Pending**
+
+Repository state and recovery sequence: [v0.1.1 Source Integration Gate](v0.1.1-source-integration-gate.md).
 
 This checklist translates the accepted design into executable work. It is an
 execution tracker, not a new source of product truth. If it conflicts with a
@@ -645,6 +647,88 @@ Entry requirement:
 - [ ] Record rollback point and owner.
 - [ ] User accepts deployment.
 - [ ] Set status to `Deployment Accepted`.
+
+## v0.1.1 — Unique Display Name
+
+### V011-D0 — Documentation Freeze
+
+- [x] Freeze the single-capability product boundary and non-goals.
+- [x] Freeze the canonical Display Name term and its separation from Login
+  Identity, User id, authorization, ownership, account linking, and Hermes.
+- [x] Freeze the 2-24 character policy, normalization, reserved names,
+  seven-day cooldown, and 15-day quarantine.
+- [x] Freeze API, database, closure, Administrator-search, migration, and
+  acceptance contracts.
+- [x] User accepts `Documentation Accepted / Implementation Pending` before any
+  v0.1.1 code change.
+
+### V011-P0 — Schema and Domain Foundation
+
+- [x] Add an Alembic migration from the existing v0.1 head.
+- [x] Add and backfill `display_name_normalized` before enforcing non-null and
+  unique constraints.
+- [x] Add nullable `display_name_changed_at`.
+- [x] Add `display_name_quarantine` with digest/expiry only and no User mapping.
+- [x] Add one canonical validator, normalizer, default generator, and former-name
+  digest implementation.
+- [x] Prove empty and existing-v0.1 upgrades on disposable PostgreSQL.
+
+### V011-P1 — Registration and Backfill
+
+- [x] Generate a unique `user_`-prefixed default in each new-User transaction.
+- [x] Preserve Invitation consumption, initial-credit exactly-once behavior, and
+  first Session creation.
+- [x] Preserve valid unique existing names; for a pre-existing normalized
+  collision keep the earliest `(created_at, id)` owner and assign generated
+  defaults to later Users.
+- [x] Backfill every null, invalid, or reserved Display Name with no duplicate
+  normalized key.
+- [x] Return non-null Display Name through `/api/me`.
+
+### V011-P2 — Self-Service Rename
+
+- [x] Implement `PATCH /api/me/profile` for the authenticated User only.
+- [x] Enforce format, normalization, reserved names, uniqueness, cooldown, and
+  quarantine in one transaction.
+- [x] Make exact replay a no-op and handle same-key presentation changes.
+- [x] Return stable unavailable, invalid, reserved, and cooldown errors.
+- [x] Add response models and OpenAPI assertions.
+
+### V011-P3 — Closure and Administrator Projection
+
+- [x] Account Closure inserts the no-owner 15-day quarantine digest before
+  deleting `app_user`.
+- [x] Disable/restore retains the Display Name.
+- [x] Administrator `q` search includes Display Name.
+- [x] No Administrator Display Name write endpoint is added.
+- [x] Audit and authorization continue to use immutable User ids.
+
+### V011-P4 — Acceptance Evidence
+
+- [x] Concurrent claims for one normalized name produce exactly one owner.
+- [x] Case and full-width variants collide.
+- [x] Reserved and invalid names fail without changing the User.
+- [x] First manual rename succeeds; a later rename inside seven days fails.
+- [x] Exact replay is a no-op.
+- [x] Former names are unavailable for 15 days and claimable after expiry.
+- [x] Account Closure retains no plaintext former name or User mapping.
+- [x] Disabled User restoration retains the same Display Name.
+- [x] Cross-User and unauthenticated mutation tests fail safely.
+- [x] User identity, ownership, quota, history, Administrator audit, and Hermes
+  integration regression tests pass unchanged.
+- [x] `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`,
+  Alembic checks, and `git diff --check` pass.
+- [x] No sibling edit, production connection, deployment, commit, or push occurs.
+- [x] Set status to `Implementation Complete / Acceptance Pending`.
+
+### V011-F1 — Separate `travel-web` Gate
+
+- [ ] Open only after explicit sibling-repository authorization.
+- [ ] Display the current Display Name in the authenticated account surface.
+- [ ] Add edit, unavailable, reserved, validation, cooldown, loading, and error
+  states against the frozen BFF contract.
+- [ ] Preserve the existing login, quota, generation, history, PDF, and Account
+  Closure flows.
 
 ## Phase Handoff Template
 

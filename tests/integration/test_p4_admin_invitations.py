@@ -11,13 +11,19 @@ from sqlalchemy import func, select
 from src.db.models import AdminAuditLog, AppUser, Invitation, UserSession
 from src.invitations.service import find_invitation
 from src.security.secrets import hash_secret, new_opaque_id
+from tests.factories import unique_display_name_fields
 
 
 async def _admin(session_factory, settings):
     token = new_opaque_id("session_", bytes_of_entropy=32)
     now = datetime.now(UTC)
     async with session_factory() as session, session.begin():
-        user = AppUser(public_id=new_opaque_id("usr_"), status="ACTIVE", role="ADMIN")
+        user = AppUser(
+            public_id=new_opaque_id("usr_"),
+            status="ACTIVE",
+            role="ADMIN",
+            **unique_display_name_fields(),
+        )
         session.add(user)
         await session.flush()
         session.add(

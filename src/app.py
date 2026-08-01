@@ -17,6 +17,7 @@ from src.history.router import router as history_router
 from src.integrations.hermes import HermesClient
 from src.middleware.request_boundary import RequestBoundaryMiddleware
 from src.observability.logging import configure_logging
+from src.profile.router import router as profile_router
 from src.trips.router import router as trips_router
 
 
@@ -83,6 +84,7 @@ def create_app(
     app.include_router(trips_router)
     app.include_router(history_router)
     app.include_router(account_router)
+    app.include_router(profile_router)
     app.include_router(admin_router)
     app.include_router(admin_hermes_router)
     return app

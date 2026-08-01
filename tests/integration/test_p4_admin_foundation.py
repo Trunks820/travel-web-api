@@ -25,6 +25,7 @@ from src.db.models import (
     UserSession,
 )
 from src.security.secrets import hash_secret, new_opaque_id
+from tests.factories import unique_display_name_fields
 
 
 async def _user(session_factory, *, role: str = "ADMIN") -> AppUser:
@@ -33,6 +34,7 @@ async def _user(session_factory, *, role: str = "ADMIN") -> AppUser:
             public_id=new_opaque_id("usr_"),
             status="ACTIVE",
             role=role,
+            **unique_display_name_fields(),
         )
         session.add(user)
         await session.flush()
@@ -265,6 +267,7 @@ async def test_controlled_owner_bootstrap_requires_verified_configured_user_and_
             public_id=new_opaque_id("usr_"),
             status="ACTIVE",
             role="USER",
+            **unique_display_name_fields(),
         )
         session.add(owner)
         await session.flush()

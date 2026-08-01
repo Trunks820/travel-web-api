@@ -1,6 +1,8 @@
 # API Contract
 
-Status: **v0.1 Implementation Complete / Acceptance Pending**
+Status: **v0.1.1 API Contract Accepted / Source Integration Accepted / Commit Pending**
+
+Repository state and recovery stop rules: [v0.1.1 Source Integration Gate](v0.1.1-source-integration-gate.md).
 
 ## 1. Conventions
 
@@ -89,7 +91,8 @@ Response:
   "ok": true,
   "user": {
     "user_id": "usr_opaque",
-    "display_name": "可选显示名",
+    "display_name": "user_7k3m9q2x4p",
+    "display_name_change_available_at": null,
     "masked_email": "u***@example.com"
   },
   "quota": {
@@ -113,6 +116,71 @@ Response:
 trusting browser storage.
 
 Unauthenticated response: `401 AUTH_REQUIRED`.
+
+In v0.1.1, `display_name` is always present. The default remains a normal
+claimable Display Name; `display_name_change_available_at` is `null` until the
+first manual rename and otherwise contains the earliest RFC 3339 UTC timestamp
+for another rename.
+
+### PATCH `/api/me/profile`
+
+This is the only v0.1.1 Display Name mutation. It requires the normal opaque
+Session and same-origin mutation boundary.
+
+Request:
+
+```json
+{
+  "display_name": "山城漫游者"
+}
+```
+
+Rules:
+
+- trim the input, apply Unicode NFKC normalization to the stored presentation
+  value, and case-fold the separate uniqueness key
+- accept 2-24 Chinese characters, Latin letters, digits, or underscores
+- reject an all-digit name, control characters, whitespace, unsupported
+  punctuation, Emoji, and reserved official/system names
+- reserve the normalized exact names `admin`, `administrator`, `owner`,
+  `official`, `system`, `support`, `service`, `yuntu`, `云途`, `管理员`, `客服`,
+  and `系统`; also reject product/role impersonation variants beginning with
+  `yuntu_`, `admin_`, `system_`, `official_`, `support_`, or `云途`
+- make no public or unauthenticated name-availability endpoint
+- the first manual rename is immediate; each later rename requires seven days
+  since `display_name_changed_at`
+- reject every unexpired 15-day former-name quarantine
+- an exact replay of the currently stored presentation value returns success
+  without changing timestamps
+- a case-only presentation change counts as a rename but keeps the same owned
+  normalized key and creates no quarantine row for that key
+- PostgreSQL uniqueness is authoritative when concurrent requests race
+
+Response:
+
+```json
+{
+  "ok": true,
+  "user": {
+    "user_id": "usr_opaque",
+    "display_name": "山城漫游者",
+    "display_name_change_available_at": "2026-08-07T12:00:00Z",
+    "masked_email": "u***@example.com"
+  }
+}
+```
+
+Stable errors:
+
+| HTTP | Code | Meaning |
+|---:|---|---|
+| 409 | `DISPLAY_NAME_UNAVAILABLE` | normalized name is owned or quarantined |
+| 422 | `DISPLAY_NAME_INVALID` | format or length is invalid |
+| 422 | `DISPLAY_NAME_RESERVED` | name is reserved for product/system identity |
+| 429 | `DISPLAY_NAME_CHANGE_COOLDOWN` | a customized User renamed within seven days |
+
+Display Name never becomes a login field, Login Identity, ownership check,
+Administrator authorization input, or value forwarded to Hermes.
 
 ### POST `/api/auth/logout`
 
@@ -661,11 +729,15 @@ failure before execution does not consume the key.
 | 409 | `REQUEST_ID_CONFLICT` | idempotency key reused with different input |
 | 409 | `IDEMPOTENCY_CONFLICT` | Administrator key reused with a different canonical request |
 | 409 | `QUOTA_BALANCE_INSUFFICIENT` | signed deduction would make available balance negative |
+| 409 | `DISPLAY_NAME_UNAVAILABLE` | normalized Display Name is owned or quarantined |
 | 409 | `LAST_OWNER_PROTECTED` | action would remove the final configured OWNER capability |
 | 409 | `ADJUSTMENT_ALREADY_REVERSED` | quota adjustment already has a reversal |
 | 422 | `VALIDATION_ERROR` | valid JSON but invalid fields |
+| 422 | `DISPLAY_NAME_INVALID` | Display Name format or length is invalid |
+| 422 | `DISPLAY_NAME_RESERVED` | Display Name is reserved for product/system identity |
 | 422 | `CITY_NOT_SUPPORTED` | requested city is outside the current supported set |
 | 429 | `QUOTA_EXHAUSTED` | no generation units available |
+| 429 | `DISPLAY_NAME_CHANGE_COOLDOWN` | another manual rename is not yet available |
 | 502 | `GENERATION_SERVICE_ERROR` | invalid/unexpected upstream response |
 | 503 | `GENERATION_SERVICE_UNAVAILABLE` | upstream unavailable before acceptance |
 | 504 | `GENERATION_STATUS_TIMEOUT` | BFF could not obtain upstream status |

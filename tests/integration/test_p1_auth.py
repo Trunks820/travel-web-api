@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -19,6 +20,7 @@ from src.db.models import (
 )
 from src.invitations.service import create_invitation
 from src.security.secrets import hash_secret, new_opaque_id
+from tests.factories import unique_display_name_fields
 
 pytestmark = pytest.mark.integration
 
@@ -87,6 +89,8 @@ async def test_registration_is_atomic_and_persists_only_hashes(
     }
     assert me.json()["active_trip"] is None
     assert me.json()["user"]["masked_email"] == "u***@example.com"
+    assert re.fullmatch(r"user_[a-z0-9]{10}", me.json()["user"]["display_name"])
+    assert me.json()["user"]["display_name_change_available_at"] is None
 
     async with session_factory() as session:
         assert await session.scalar(select(func.count()).select_from(AppUser)) == 1
@@ -136,6 +140,7 @@ async def test_send_code_is_non_enumerating_and_mode_correction_is_post_proof(
             public_id=new_opaque_id("usr_"),
             status="ACTIVE",
             role="USER",
+            **unique_display_name_fields(),
         )
         session.add(user)
         await session.flush()
@@ -531,6 +536,7 @@ async def test_rate_limits_and_capability_session_revocation(
             public_id=new_opaque_id("usr_"),
             status="ACTIVE",
             role="USER",
+            **unique_display_name_fields(),
         )
         session.add(user)
         await session.flush()

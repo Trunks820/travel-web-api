@@ -20,6 +20,7 @@ from src.db.models import (
     UserSession,
 )
 from src.invitations.service import find_invitation, invitation_is_usable
+from src.profile.service import create_user_with_default_display_name
 from src.security.secrets import (
     hash_secret,
     new_opaque_id,
@@ -337,15 +338,15 @@ async def verify_auth_code(
                 if invitation is None or not invitation_is_usable(invitation, now):
                     outcome = "INVITATION_INVALID"
                 else:
-                    user = AppUser(
+                    user = await create_user_with_default_display_name(
+                        session,
+                        settings,
                         public_id=new_opaque_id("usr_"),
                         status="ACTIVE",
                         role="USER",
                         created_at=now,
                         updated_at=now,
                     )
-                    session.add(user)
-                    await session.flush()
                     session.add(
                         UserIdentity(
                             user_id=user.id,

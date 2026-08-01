@@ -96,6 +96,7 @@ async def list_admin_users(
             .outerjoin(InvitationBatch, InvitationBatch.id == Invitation.batch_id)
             .where(
                 or_(
+                    AppUser.display_name.ilike(term),
                     AppUser.public_id.ilike(term),
                     UserIdentity.verified_email.ilike(term),
                     Invitation.source_label.ilike(term),
