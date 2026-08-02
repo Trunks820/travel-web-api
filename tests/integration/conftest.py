@@ -395,12 +395,25 @@ async def clean_database(pg_engine):
         await connection.execute(
             text(
                 "TRUNCATE TABLE "
+                "admin_projection_reconciliation, "
+                "admin_projection_backfill_checkpoint, admin_projection_event, "
+                "admin_trip_step_projection, admin_trip_projection, "
                 "display_name_quarantine, admin_audit_log, quota_adjustment, "
                 "admin_idempotency, "
                 "trip_quota_entry, user_trip, "
                 "email_otp_challenge, invitation_redemption, user_session, "
                 "quota_grant, user_identity, invitation, invitation_batch, app_user "
                 "RESTART IDENTITY CASCADE"
+            )
+        )
+        await connection.execute(
+            text(
+                "UPDATE admin_projection_consumer_state SET "
+                "applied_high_watermark = 0, latest_heartbeat_watermark = NULL, "
+                "latest_heartbeat_observed_at = NULL, sync_checked_at = NULL, "
+                "schema_version = '1.0', next_expected_sequence = 1, "
+                "stream_state = 'ACTIVE', last_reconciliation_at = NULL, "
+                "initialization_state = 'UNINITIALIZED' WHERE id = 1"
             )
         )
     yield

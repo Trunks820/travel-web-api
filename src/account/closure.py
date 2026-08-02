@@ -11,6 +11,7 @@ from src.config import Settings
 from src.db.models import (
     AdminAuditLog,
     AdminIdempotency,
+    AdminTripProjection,
     AppUser,
     EmailOtpChallenge,
     InvitationBatch,
@@ -108,11 +109,31 @@ async def close_account(
                 trips = list(
                     (
                         await session.scalars(
-                            select(UserTrip).where(UserTrip.user_id == user_id).with_for_update()
+                            select(UserTrip)
+                            .where(UserTrip.user_id == user_id)
+                            .order_by(UserTrip.id)
+                            .with_for_update()
                         )
                     ).all()
                 )
+                projection_by_job: dict[str, AdminTripProjection] = {}
+                job_ids = sorted(
+                    trip.hermes_job_id for trip in trips if trip.hermes_job_id is not None
+                )
+                if job_ids:
+                    projections = list(
+                        (
+                            await session.scalars(
+                                select(AdminTripProjection)
+                                .where(AdminTripProjection.job_id.in_(job_ids))
+                                .order_by(AdminTripProjection.job_id)
+                                .with_for_update()
+                            )
+                        ).all()
+                    )
+                    projection_by_job = {row.job_id: row for row in projections}
                 for trip in trips:
+                    trip.association_version += 1
                     trip.user_id = None
                     trip.quota_entry_id = None
                     trip.identity_erased_at = now
@@ -122,7 +143,22 @@ async def close_account(
                         trip.request_json,
                         account_closure=True,
                     )
+                    trip.request_field_provenance = {}
                     trip.updated_at = now
+                    if trip.hermes_job_id is not None:
+                        projection = projection_by_job.get(trip.hermes_job_id)
+                        if projection is not None:
+                            projection.association_state = "de-identified"
+                            projection.association_version = max(
+                                projection.association_version,
+                                trip.association_version,
+                            )
+                            projection.identity_erased_at = (
+                                projection.identity_erased_at or now
+                            )
+                            projection.user_trip_id = None
+                            projection.user_id = None
+                            projection.synced_at = now
                 await session.flush()
                 await session.execute(
                     delete(TripQuotaEntry).where(TripQuotaEntry.user_id == user_id)

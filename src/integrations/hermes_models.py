@@ -117,6 +117,60 @@ class HermesAdminTripJobDetail(HermesAdminEnvelope):
     trip_job: HermesAdminTripJob
 
 
+class HermesProjectionJobPayload(HermesModel):
+    source_id: int = Field(ge=1)
+    job_id: str = Field(min_length=1, max_length=160)
+    source_version: int = Field(ge=1)
+    source: str = Field(min_length=1, max_length=80)
+    city: str | None = Field(default=None, max_length=120)
+    days: int | None = Field(default=None, ge=1, le=30)
+    status: Literal["PENDING", "RUNNING", "SUCCESS", "FAILED", "TIMEOUT", "REJECTED"]
+    current_stage: str | None = Field(default=None, max_length=120)
+    result_type: Literal["PLAN_READY", "NO_CANDIDATES", "NO_USABLE_ROUTE", "UNKNOWN"] | None
+    result_record_id: int | None = Field(default=None, ge=1)
+    guide_result_state: Literal[
+        "NOT_APPLICABLE", "LEGAL_NO_GUIDE", "AVAILABLE", "INCONSISTENT"
+    ]
+    error_code: str | None = Field(default=None, max_length=80)
+    safe_error: HermesAdminSafeError | None
+    detailed_reason: str | None = Field(default=None, max_length=80)
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    retry_count: int = Field(ge=0)
+    failed_draft_available: bool
+    trace_completeness: Literal["COMPLETE", "PARTIAL", "UNKNOWN"]
+    source_updated_at: datetime
+
+
+class HermesProjectionStepPayload(HermesModel):
+    source_step_id: int = Field(ge=1)
+    job_id: str = Field(min_length=1, max_length=160)
+    source_version: int = Field(ge=1)
+    stage: str = Field(min_length=1, max_length=120)
+    status: Literal["RUNNING", "SUCCESS", "FAILED", "TIMEOUT"]
+    attempt: int = Field(ge=1)
+    publish_retry_round: int = Field(ge=0)
+    started_at: datetime
+    finished_at: datetime | None
+    duration_ms: int | None = Field(default=None, ge=0)
+    source_updated_at: datetime
+
+
+class HermesProjectionJobPage(HermesAdminEnvelope):
+    snapshot_max_id: int = Field(ge=0)
+    next_after_id: int | None = Field(default=None, ge=1)
+    has_more: bool
+    items: list[HermesProjectionJobPayload] = Field(max_length=1000)
+
+
+class HermesProjectionStepPage(HermesAdminEnvelope):
+    snapshot_max_id: int = Field(ge=0)
+    next_after_id: int | None = Field(default=None, ge=1)
+    has_more: bool
+    items: list[HermesProjectionStepPayload] = Field(max_length=1000)
+
+
 class HermesAdminFailedDraftPlan(HermesModel):
     plan_name: str = Field(max_length=300)
     summary: str = Field(max_length=10_000)
@@ -319,6 +373,21 @@ class HermesResult(HermesModel):
     plans: list[ResultPlan] = Field(max_length=20)
     must_include: list[ResultMustInclude] | None = Field(default=None, max_length=20)
     commute_mode_report: ResultCommuteModeReport | None = None
+
+
+class HermesStructuredRequest(HermesModel):
+    values: dict[str, Any]
+    field_provenance: dict[str, Literal["USER_SUPPLIED"]]
+
+
+class HermesInternalGuideResult(HermesAdminEnvelope):
+    job_id: str = Field(min_length=1, max_length=160)
+    guide_result_state: Literal["AVAILABLE"]
+    result_type: Literal["PLAN_READY"]
+    result_record_id: int = Field(ge=1)
+    request: HermesStructuredRequest | None
+    final_guide: HermesResult
+    artifacts: list[HermesAdminArtifact] = Field(max_length=100)
 
 
 class HermesArtifactError(HermesModel):

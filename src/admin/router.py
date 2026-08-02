@@ -18,6 +18,7 @@ from src.admin.invitations import (
     list_batches,
     lookup_code,
 )
+from src.admin.projection import ProjectionUnavailable, projection_health
 from src.admin.reports import (
     AUDIT_ACTIONS,
     AUDIT_RESULTS,
@@ -107,6 +108,15 @@ def _track_admin_idempotency(request: Request, key: uuid.UUID) -> None:
 
 def _raise_admin(exc: AdminOperationError) -> ApiError:
     return ApiError(exc.status, exc.code, exc.message)
+
+
+def _raise_projection(exc: ProjectionUnavailable) -> ApiError:
+    return ApiError(
+        503,
+        "PROJECTION_UNAVAILABLE",
+        "攻略运营数据暂不可用。",
+        retryable=True,
+    )
 
 
 @router.get("/me", response_model=AdminMeResponse)
@@ -556,7 +566,17 @@ async def admin_dashboard(
     _admin: AdminContext = CURRENT_ADMIN,
     db: AsyncSession = DB_SESSION,
 ):
-    return {"ok": True, "request_id": _request_id(request), **(await dashboard(db))}
+    try:
+        health = await projection_health(db)
+    except ProjectionUnavailable as exc:
+        raise _raise_projection(exc) from exc
+    return {
+        "ok": True,
+        "request_id": _request_id(request),
+        **(await dashboard(db, as_of=health.as_of)),
+        "freshness": health.freshness,
+        "projection_alarm": health.alarm,
+    }
 
 
 @router.get(
@@ -578,6 +598,10 @@ async def admin_trip_generation_report(
     _admin: AdminContext = CURRENT_ADMIN,
     db: AsyncSession = DB_SESSION,
 ):
+    try:
+        health = await projection_health(db)
+    except ProjectionUnavailable as exc:
+        raise _raise_projection(exc) from exc
     return {
         "ok": True,
         "request_id": _request_id(request),
@@ -591,8 +615,11 @@ async def admin_trip_generation_report(
                 error_code=error_code,
                 result_type=result_type,
                 detailed_reason=detailed_reason,
+                as_of=health.as_of,
             )
         ),
+        "freshness": health.freshness,
+        "projection_alarm": health.alarm,
     }
 
 

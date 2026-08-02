@@ -7,11 +7,19 @@ from typing import Any
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import AdminAuditLog, AppUser, Invitation, UserTrip
+from src.admin.projection import runtime_projection
+from src.db.models import (
+    AdminAuditLog,
+    AdminTripProjection,
+    AdminTripStepProjection,
+    AppUser,
+    Invitation,
+    UserTrip,
+)
 from src.quota.service import quota_snapshot
 
 TERMINAL = {"SUCCESS", "FAILED", "TIMEOUT", "REJECTED"}
-PROCESSING = {"SUBMITTING", "PENDING", "RUNNING"}
+PROCESSING = {"PENDING", "RUNNING"}
 AUDIT_ACTIONS = {
     "ADMIN_ACCESS_DENIED",
     "ADMIN_WRITE_FAILED",
@@ -40,12 +48,12 @@ def ratio(numerator: int, denominator: int) -> dict[str, Any]:
     }
 
 
-def trip_exception(row: UserTrip, now: datetime) -> bool:
+def trip_exception(row: AdminTripProjection, now: datetime) -> bool:
     if row.status in {"FAILED", "TIMEOUT"}:
         return True
-    if row.status in PROCESSING and (now - row.created_at).total_seconds() >= 180:
+    if runtime_projection(row, now)["is_slow"]:
         return True
-    if row.status == "SUCCESS" and row.telemetry_json.get("result_type") in {
+    if row.status == "SUCCESS" and row.result_type in {
         "NO_CANDIDATES",
         "NO_USABLE_ROUTE",
     }:
@@ -71,50 +79,15 @@ def duration_summary(values: list[float]) -> dict[str, float | None]:
     return {"p50": percentile(values, 0.5), "p95": percentile(values, 0.95)}
 
 
-def _result_type(row: UserTrip) -> str | None:
-    value = row.telemetry_json.get("result_type")
-    return str(value) if value not in (None, "") else None
-
-
-def _detailed_reason(row: UserTrip) -> str | None:
-    for key in ("detailed_reason", "failure_reason", "reason_code"):
-        value = row.telemetry_json.get(key)
-        if value not in (None, ""):
-            return str(value)
-    return None
-
-
-def _elapsed_ms(row: UserTrip, now: datetime) -> float:
-    value = row.telemetry_json.get("total_elapsed_ms")
-    if isinstance(value, (int, float)):
-        return float(value)
-    return max(0.0, ((row.finished_at or now) - row.created_at).total_seconds() * 1000)
-
-
-def _stage_durations(row: UserTrip) -> dict[str, float]:
-    durations: dict[str, float] = {}
-    nested = row.telemetry_json.get("stage_durations_ms")
-    if isinstance(nested, dict):
-        for name, value in nested.items():
-            if isinstance(value, (int, float)):
-                durations[str(name)] = float(value)
-    for name, value in row.telemetry_json.items():
-        if (
-            name != "total_elapsed_ms"
-            and name.endswith("_elapsed_ms")
-            and isinstance(value, (int, float))
-        ):
-            durations[name.removesuffix("_elapsed_ms")] = float(value)
-    return durations
-
-
-async def dashboard(session: AsyncSession) -> dict[str, Any]:
-    now = datetime.now(UTC)
+async def dashboard(session: AsyncSession, *, as_of: datetime) -> dict[str, Any]:
+    now = as_of
     users = (await session.execute(select(AppUser))).scalars().all()
     trips = (
         (
             await session.execute(
-                select(UserTrip).where(UserTrip.created_at >= now - timedelta(hours=24))
+                select(AdminTripProjection).where(
+                    AdminTripProjection.created_at >= now - timedelta(hours=24)
+                )
             )
         )
         .scalars()
@@ -166,11 +139,11 @@ async def dashboard(session: AsyncSession) -> dict[str, Any]:
         },
         "recent_exceptions": [
             {
-                "job_id": row.hermes_job_id,
+                "job_id": row.job_id,
                 "status": row.status,
                 "city": row.city,
                 "error_code": row.error_code,
-                "slow": row.status in PROCESSING and (now - row.created_at).total_seconds() >= 180,
+                "slow": runtime_projection(row, now)["is_slow"],
             }
             for row in exceptions[:10]
         ],
@@ -187,36 +160,44 @@ async def trip_generation_report(
     error_code: str | None,
     result_type: str | None,
     detailed_reason: str | None,
+    as_of: datetime,
 ) -> dict[str, Any]:
-    now = datetime.now(UTC)
-    statement = select(UserTrip)
+    now = as_of
+    statement = select(AdminTripProjection)
     if city:
-        statement = statement.where(UserTrip.city == city)
+        statement = statement.where(AdminTripProjection.city == city)
     if time_from:
-        statement = statement.where(UserTrip.created_at >= time_from)
+        statement = statement.where(AdminTripProjection.created_at >= time_from)
     if time_to:
-        statement = statement.where(UserTrip.created_at < time_to)
+        statement = statement.where(AdminTripProjection.created_at < time_to)
     if status_filter:
-        statement = statement.where(UserTrip.status == status_filter)
+        statement = statement.where(AdminTripProjection.status == status_filter)
     if error_code:
-        statement = statement.where(UserTrip.error_code == error_code)
-    rows = (await session.execute(statement)).scalars().all()
+        statement = statement.where(AdminTripProjection.error_code == error_code)
     if result_type:
-        rows = [row for row in rows if _result_type(row) == result_type]
+        statement = statement.where(AdminTripProjection.result_type == result_type)
     if detailed_reason:
-        rows = [row for row in rows if _detailed_reason(row) == detailed_reason]
+        statement = statement.where(AdminTripProjection.detailed_reason == detailed_reason)
+    rows = (await session.execute(statement)).scalars().all()
     terminal = [row for row in rows if row.status in TERMINAL]
     status = Counter(row.status for row in terminal)
-    types = Counter(value for row in terminal if (value := _result_type(row)))
-    valid_guides = sum(
-        row.status == "SUCCESS" and _result_type(row) == "PLAN_READY" for row in terminal
-    )
-    elapsed = [_elapsed_ms(row, now) for row in rows]
+    types = Counter(row.result_type for row in terminal if row.result_type)
+    valid_guides = sum(row.guide_result_state == "AVAILABLE" for row in terminal)
+    elapsed = [float(runtime_projection(row, now)["total_duration_ms"]) for row in rows]
     stages: dict[str, list[float]] = defaultdict(list)
-    for row in rows:
-        for stage, value in _stage_durations(row).items():
-            stages[stage].append(value)
-    slow = sum(value > 180_000 for value in elapsed)
+    job_ids = [row.job_id for row in rows if row.trace_completeness == "COMPLETE"]
+    if job_ids:
+        step_rows = (
+            await session.scalars(
+                select(AdminTripStepProjection).where(
+                    AdminTripStepProjection.job_id.in_(job_ids),
+                    AdminTripStepProjection.duration_ms.is_not(None),
+                )
+            )
+        ).all()
+        for step in step_rows:
+            stages[step.stage].append(float(step.duration_ms or 0))
+    slow = sum(runtime_projection(row, now)["is_slow"] for row in rows)
     trend: dict[str, Counter[str]] = defaultdict(Counter)
     for row in terminal:
         trend[row.created_at.date().isoformat()][row.status] += 1
@@ -249,10 +230,10 @@ async def trip_generation_report(
             "total": duration_summary(elapsed),
             "stages": {name: duration_summary(values) for name, values in sorted(stages.items())},
         },
-        "slow_over_180s": {"count": slow, "rate": ratio(slow, len(rows))},
+        "slow_tasks": {"count": slow, "rate": ratio(slow, len(rows))},
         "error_distribution": dict(Counter(row.error_code for row in rows if row.error_code)),
         "detailed_reason_distribution": dict(
-            Counter(value for row in rows if (value := _detailed_reason(row)))
+            Counter(row.detailed_reason for row in rows if row.detailed_reason)
         ),
         "result_type_distribution": dict(types),
     }

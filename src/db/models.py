@@ -414,8 +414,142 @@ class UserTrip(Base):
     visible_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     identity_erased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    association_version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
+    request_field_provenance: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
     reconciliation_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AdminTripProjection(Base):
+    __tablename__ = "admin_trip_projection"
+    __table_args__ = (
+        Index("ix_admin_trip_created_job", text("created_at DESC"), text("job_id DESC")),
+        Index("ix_admin_trip_status_created", "status", "created_at"),
+        Index("ix_admin_trip_source_created", "source", "created_at"),
+        Index("ix_admin_trip_association_created", "association_state", "created_at"),
+        Index("ix_admin_trip_user_created", "user_id", "created_at"),
+        Index("ix_admin_trip_result_record", "result_record_id"),
+        Index("ix_admin_trip_stage_created", "current_stage", "created_at"),
+    )
+
+    job_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    source_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
+    source_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    source: Mapped[str] = mapped_column(String(80), nullable=False)
+    city: Mapped[str | None] = mapped_column(String(120))
+    days: Mapped[int | None] = mapped_column(SmallInteger)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    current_stage: Mapped[str | None] = mapped_column(String(120))
+    result_type: Mapped[str | None] = mapped_column(String(32))
+    result_record_id: Mapped[int | None] = mapped_column(BigInteger)
+    guide_result_state: Mapped[str] = mapped_column(String(24), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    safe_error_message: Mapped[str | None] = mapped_column(String(500))
+    detailed_reason: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    failed_draft_available: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    trace_completeness: Mapped[str] = mapped_column(String(16), nullable=False)
+    association_state: Mapped[str] = mapped_column(String(24), nullable=False)
+    association_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    identity_erased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    user_trip_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user_trip.id", ondelete="SET NULL")
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("app_user.id", ondelete="SET NULL")
+    )
+    source_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AdminTripStepProjection(Base):
+    __tablename__ = "admin_trip_step_projection"
+    __table_args__ = (
+        Index("ix_admin_step_job_order", "job_id", "started_at", "source_step_id"),
+        Index("ix_admin_step_stage_start", "stage", "started_at"),
+        Index("ix_admin_step_stage_status_start", "stage", "status", "started_at"),
+        Index("ix_admin_step_job_stage_status", "job_id", "stage", "status"),
+    )
+
+    source_step_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("admin_trip_projection.job_id", ondelete="CASCADE"), nullable=False
+    )
+    source_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    stage: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+    publish_retry_round: Mapped[int] = mapped_column(Integer, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    source_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AdminProjectionEvent(Base):
+    __tablename__ = "admin_projection_event"
+
+    event_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    outbox_sequence: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
+    payload_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    applied_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AdminProjectionConsumerState(Base):
+    __tablename__ = "admin_projection_consumer_state"
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, default=1)
+    applied_high_watermark: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    latest_heartbeat_watermark: Mapped[int | None] = mapped_column(BigInteger)
+    latest_heartbeat_observed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    sync_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    schema_version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0")
+    next_expected_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
+    stream_state: Mapped[str] = mapped_column(String(24), nullable=False, default="ACTIVE")
+    last_reconciliation_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    initialization_state: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="UNINITIALIZED"
+    )
+
+
+class AdminProjectionBackfillCheckpoint(Base):
+    __tablename__ = "admin_projection_backfill_checkpoint"
+
+    entity_type: Mapped[str] = mapped_column(String(20), primary_key=True)
+    snapshot_max_id: Mapped[int | None] = mapped_column(BigInteger)
+    last_source_id: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AdminProjectionReconciliation(Base):
+    __tablename__ = "admin_projection_reconciliation"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    missing_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    extra_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stale_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    impossible_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    summary_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
 
 
 class TripQuotaEntry(Base):

@@ -60,6 +60,19 @@ class Settings(BaseSettings):
     reconciliation_batch_size: int = 50
     reconciliation_max_attempts: int = 5
     artifact_max_bytes: int = 25 * 1024 * 1024
+    projection_consumer_enabled: bool = False
+    projection_rabbitmq_url: SecretStr = SecretStr("")
+    projection_exchange_name: str = "yuntu.admin.trip-projection"
+    projection_routing_key: str = "trip.projection.committed"
+    projection_queue_name: str = "yuntu.admin.trip-projection.v1"
+    projection_dead_letter_exchange_name: str = "yuntu.admin.trip-projection.dlx"
+    projection_dead_letter_routing_key: str = "trip.projection.poison"
+    projection_dead_letter_queue_name: str = "yuntu.admin.trip-projection.v1.dlq"
+    projection_max_delivery_attempts: int = 5
+    projection_retry_seconds: float = 1.0
+    projection_backfill_on_start: bool = False
+    admin_projection_max_range_days: int = 3660
+    admin_guide_cache_redis_url: SecretStr = SecretStr("")
 
     @property
     def allowed_origins(self) -> frozenset[str]:
@@ -73,6 +86,8 @@ class Settings(BaseSettings):
             self.secret_hash_pepper.get_secret_value(),
             self.directmail_access_key_id.get_secret_value(),
             self.directmail_access_key_secret.get_secret_value(),
+            self.projection_rabbitmq_url.get_secret_value(),
+            self.admin_guide_cache_redis_url.get_secret_value(),
         )
         return tuple(value for value in values if value and value != "replace-me")
 
@@ -86,6 +101,12 @@ class Settings(BaseSettings):
             raise ValueError("v0.1 session and history policy is fixed at seven days")
         if self.otp_code_digits < 6 or self.otp_max_attempts < 1:
             raise ValueError("OTP security bounds are invalid")
+        if self.projection_max_delivery_attempts < 1 or self.projection_retry_seconds <= 0:
+            raise ValueError("projection retry policy is invalid")
+        if self.admin_projection_max_range_days < 1:
+            raise ValueError("ADMIN_PROJECTION_MAX_RANGE_DAYS must be positive")
+        if self.projection_consumer_enabled and not self.projection_rabbitmq_url.get_secret_value():
+            raise ValueError("PROJECTION_RABBITMQ_URL is required when the consumer is enabled")
         if (
             min(
                 self.otp_expiry_seconds,

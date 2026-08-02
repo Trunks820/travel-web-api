@@ -5,7 +5,14 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import select
 
-from src.db.models import AdminAuditLog, AppUser, UserSession
+from src.db.models import (
+    AdminAuditLog,
+    AdminProjectionConsumerState,
+    AdminTripProjection,
+    AdminTripStepProjection,
+    AppUser,
+    UserSession,
+)
 from src.integrations.hermes import HermesBusinessError
 from src.security.secrets import hash_secret, new_opaque_id
 from tests.factories import unique_display_name_fields
@@ -67,17 +74,60 @@ async def test_admin_trip_routes_auth_default_window_filters_and_safe_projection
         )
     ).status_code == 403
 
-    hermes.admin_job_item.update(
-        {
-            "status": "PENDING",
-            "current_stage": "FINAL_WRITER",
-            "result_record_id": None,
-            "safe_error": None,
-            "detailed_reason": None,
-            "finished_at": None,
-            "failed_draft_available": False,
-        }
-    )
+    now = datetime.now(UTC)
+    async with session_factory() as session, session.begin():
+        state = await session.get(AdminProjectionConsumerState, 1)
+        state.latest_heartbeat_watermark = 0
+        state.latest_heartbeat_observed_at = now
+        state.sync_checked_at = now
+        state.initialization_state = "INITIALIZED"
+        session.add(
+            AdminTripProjection(
+                job_id="hermes-admin-job-1",
+                source_id=1,
+                source_version=1,
+                source="WEB",
+                city="重庆",
+                days=3,
+                status="PENDING",
+                current_stage="FINAL_WRITER",
+                result_type=None,
+                result_record_id=None,
+                guide_result_state="NOT_APPLICABLE",
+                error_code=None,
+                safe_error_message=None,
+                detailed_reason=None,
+                created_at=now - timedelta(seconds=181),
+                started_at=now - timedelta(seconds=180),
+                finished_at=None,
+                retry_count=0,
+                failed_draft_available=False,
+                trace_completeness="COMPLETE",
+                association_state="unlinked",
+                association_version=1,
+                identity_erased_at=None,
+                user_trip_id=None,
+                user_id=None,
+                source_updated_at=now,
+                synced_at=now,
+            )
+        )
+        session.add(
+            AdminTripStepProjection(
+                source_step_id=1,
+                job_id="hermes-admin-job-1",
+                source_version=1,
+                stage="FINAL_WRITER",
+                status="RUNNING",
+                attempt=1,
+                publish_retry_round=0,
+                started_at=now - timedelta(seconds=180),
+                finished_at=None,
+                duration_ms=None,
+                source_updated_at=now,
+                synced_at=now,
+            )
+        )
     listing = await client.get(
         "/api/admin/trip-jobs",
         params={"city": " 重庆 ", "status": "PENDING"},
@@ -85,14 +135,10 @@ async def test_admin_trip_routes_auth_default_window_filters_and_safe_projection
     )
     assert listing.status_code == 200
     item = listing.json()["items"][0]
-    assert item["slow"] is True
-    assert item["is_exception"] is True
-    assert item["exception_kind"] == "SLOW"
-    call = hermes.admin_calls[-1]
-    assert call[0] == "trip_jobs"
-    assert call[1]["city"] == "重庆"
-    assert call[1]["status"] == "PENDING"
-    assert call[1]["time_from"] is not None
+    assert item["is_slow"] is True
+    assert item["timeout_settlement_anomaly"] is True
+    assert item["association"] == {"state": "unlinked"}
+    assert hermes.admin_calls == []
 
     invalid_range = await client.get(
         "/api/admin/trip-jobs",
@@ -110,8 +156,8 @@ async def test_admin_trip_routes_auth_default_window_filters_and_safe_projection
         headers=admin_headers,
     )
     assert detail.status_code == 200
-    trip_job = detail.json()["trip_job"]
-    assert trip_job["steps"][0]["stage"] == "FINAL_WRITER"
+    assert detail.json()["steps"][0]["stage"] == "FINAL_WRITER"
+    assert detail.json()["steps"][0]["stage_label_zh"] == "撰写攻略正文"
     assert "metadata" not in detail.text
     assert "provider_payload" not in detail.text
 

@@ -212,6 +212,9 @@ def test_openapi_metadata_is_the_frontend_contract_boundary() -> None:
         ("post", "/api/admin/quota-adjustments/{adjustment_id}/reverse"),
         ("get", "/api/admin/trip-jobs"),
         ("get", "/api/admin/trip-jobs/{job_id}"),
+        ("get", "/api/admin/users/{user_id}/trip-jobs"),
+        ("get", "/api/admin/generation-pipeline"),
+        ("get", "/api/admin/trip-jobs/{job_id}/guide-review"),
         ("get", "/api/admin/trip-jobs/{job_id}/failed-draft"),
         ("get", "/api/admin/artifacts"),
         ("get", "/api/admin/artifacts/{artifact_id}"),
@@ -271,6 +274,12 @@ def test_openapi_metadata_is_the_frontend_contract_boundary() -> None:
     assert trip_list["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/AdminTripJobListResponse"
     )
+    assert "HermesResult" in response.json()["components"]["schemas"]
+    assert response.json()["x-external-schema-resolution"] == {
+        "urn:yuntu:travel-web-api:openapi:HermesResult": (
+            "#/components/schemas/HermesResult"
+        )
+    }
     failed_draft = paths["/api/admin/trip-jobs/{job_id}/failed-draft"]["get"]
     assert {"200", "401", "403", "404", "502", "503"} <= failed_draft["responses"].keys()
     artifact_download = paths["/api/admin/artifacts/{artifact_id}/download"]["get"]

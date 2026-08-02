@@ -16,9 +16,12 @@ from src.integrations.hermes_models import (
     HermesAdminTripJobDetail,
     HermesAdminTripJobList,
     HermesArtifact,
+    HermesInternalGuideResult,
     HermesJobStatus,
     HermesPlaceDetail,
     HermesPlaceList,
+    HermesProjectionJobPage,
+    HermesProjectionStepPage,
     HermesResult,
     HermesTripCreated,
     validate_sse_payload,
@@ -286,6 +289,47 @@ class HermesClient:
             f"/internal/v1/admin/trip-jobs/{quote(job_id, safe='')}",
             correlation_id=correlation_id,
             allowed_business_errors=frozenset({"TRIP_JOB_NOT_FOUND"}),
+        )
+
+    async def admin_projection_trip_jobs(
+        self,
+        *,
+        correlation_id: str,
+        params: dict[str, Any],
+    ) -> HermesProjectionJobPage:
+        return await self._request_admin_model(
+            HermesProjectionJobPage,
+            "/internal/v1/admin/projection/trip-jobs",
+            correlation_id=correlation_id,
+            params=params,
+        )
+
+    async def admin_projection_trip_steps(
+        self,
+        *,
+        correlation_id: str,
+        params: dict[str, Any],
+    ) -> HermesProjectionStepPage:
+        return await self._request_admin_model(
+            HermesProjectionStepPage,
+            "/internal/v1/admin/projection/trip-steps",
+            correlation_id=correlation_id,
+            params=params,
+        )
+
+    async def admin_guide_result(
+        self,
+        job_id: str,
+        *,
+        correlation_id: str,
+    ) -> HermesInternalGuideResult:
+        return await self._request_admin_model(
+            HermesInternalGuideResult,
+            f"/internal/v1/admin/trip-jobs/{quote(job_id, safe='')}/guide-result",
+            correlation_id=correlation_id,
+            allowed_business_errors=frozenset(
+                {"TRIP_JOB_NOT_FOUND", "GUIDE_NOT_AVAILABLE", "GUIDE_RESULT_INCONSISTENT"}
+            ),
         )
 
     async def admin_failed_draft(

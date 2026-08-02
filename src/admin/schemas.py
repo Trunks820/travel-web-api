@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.admin.projection_schemas import Freshness, ProjectionAlarm
 from src.integrations.hermes_models import (
     HermesAdminArtifact,
     HermesAdminFailedDraft,
@@ -261,6 +262,8 @@ class AdminDashboardResponse(AdminSuccessResponse):
     trips_24h: AdminDashboardTrips
     invitations: AdminDashboardInvitations
     recent_exceptions: list[AdminDashboardException]
+    freshness: Freshness
+    projection_alarm: ProjectionAlarm | None
 
 
 class AdminTripReportFilters(BaseModel):
@@ -305,7 +308,9 @@ class AdminTripGenerationReportResponse(AdminSuccessResponse):
     no_candidates_rate: AdminRatio
     no_usable_route_rate: AdminRatio
     duration_ms: AdminDurationBreakdown
-    slow_over_180s: AdminSlowSummary
+    slow_tasks: AdminSlowSummary
+    freshness: Freshness
+    projection_alarm: ProjectionAlarm | None
     error_distribution: dict[str, int]
     detailed_reason_distribution: dict[str, int]
     result_type_distribution: dict[str, int]

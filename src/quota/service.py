@@ -8,7 +8,14 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.config import Settings
-from src.db.models import AppUser, QuotaAdjustment, QuotaGrant, TripQuotaEntry, UserTrip
+from src.db.models import (
+    AdminTripProjection,
+    AppUser,
+    QuotaAdjustment,
+    QuotaGrant,
+    TripQuotaEntry,
+    UserTrip,
+)
 from src.security.secrets import new_opaque_id
 
 ACTIVE_TRIP_STATUSES = ("SUBMITTING", "PENDING", "RUNNING")
@@ -118,6 +125,7 @@ async def reserve_trip(
     client_request_id: str,
     request_hash: str,
     request_json: dict[str, object],
+    request_field_provenance: dict[str, str] | None = None,
 ) -> Reservation:
     now = datetime.now(UTC)
     async with session_factory() as session, session.begin():
@@ -166,6 +174,7 @@ async def reserve_trip(
             client_request_id=client_request_id,
             request_hash=request_hash,
             request_json=request_json,
+            request_field_provenance=request_field_provenance or {},
             city=str(request_json["to_city"]),
             days=int(request_json["days"]),
             status="SUBMITTING",
@@ -263,10 +272,39 @@ async def save_upstream_acceptance(
             raise QuotaInvariantError("one trip resolved to different upstream jobs")
         if trip.status in TERMINAL_TRIP_STATUSES:
             return trip
+        binding_changed = trip.hermes_job_id is None
         trip.hermes_job_id = job_id
         trip.status = normalized
         trip.started_at = trip.started_at or (now if normalized == "RUNNING" else None)
         trip.updated_at = now
+        if binding_changed:
+            trip.association_version += 1
+        projection = await session.scalar(
+            select(AdminTripProjection)
+            .where(AdminTripProjection.job_id == job_id)
+            .with_for_update()
+        )
+        if projection is not None:
+            if trip.identity_erased_at is not None or projection.identity_erased_at is not None:
+                projection.association_state = "de-identified"
+                projection.user_trip_id = None
+                projection.user_id = None
+                projection.identity_erased_at = (
+                    projection.identity_erased_at or trip.identity_erased_at or now
+                )
+            elif trip.user_id is not None:
+                projection.association_state = "linked"
+                projection.user_trip_id = trip.id
+                projection.user_id = trip.user_id
+            else:
+                projection.association_state = "unlinked"
+                projection.user_trip_id = trip.id
+                projection.user_id = None
+            projection.association_version = max(
+                projection.association_version,
+                trip.association_version,
+            )
+            projection.synced_at = now
         await session.flush()
         return trip
 

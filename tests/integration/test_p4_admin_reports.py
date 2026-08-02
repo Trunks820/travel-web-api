@@ -5,7 +5,14 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from src.admin.audit import append_admin_audit
-from src.db.models import AppUser, UserSession, UserTrip
+from src.db.models import (
+    AdminProjectionConsumerState,
+    AdminTripProjection,
+    AdminTripStepProjection,
+    AppUser,
+    UserSession,
+    UserTrip,
+)
 from src.security.secrets import hash_secret, new_opaque_id
 from tests.factories import unique_display_name_fields
 
@@ -97,6 +104,63 @@ def _trip(
     )
 
 
+def _projection(trip: UserTrip, *, index: int, now: datetime):
+    elapsed_ms = int(trip.telemetry_json.get("total_elapsed_ms", 0))
+    terminal = trip.status not in {"SUBMITTING", "PENDING", "RUNNING"}
+    started_at = (
+        trip.created_at if terminal else now - timedelta(milliseconds=elapsed_ms)
+    )
+    projection_created_at = trip.created_at if terminal else started_at
+    finished_at = started_at + timedelta(milliseconds=elapsed_ms) if terminal else None
+    result_type = trip.telemetry_json.get("result_type")
+    projection = AdminTripProjection(
+        job_id=trip.hermes_job_id,
+        source_id=10_000 + index,
+        source_version=1,
+        source="WEB",
+        city=trip.city,
+        days=trip.days,
+        status=trip.status,
+        current_stage=None if terminal else "FINAL_WRITER",
+        result_type=result_type,
+        result_record_id=index if result_type == "PLAN_READY" else None,
+        guide_result_state="AVAILABLE" if result_type == "PLAN_READY" else "NOT_APPLICABLE",
+        error_code=trip.error_code,
+        safe_error_message=None,
+        detailed_reason=trip.telemetry_json.get("detailed_reason"),
+        created_at=projection_created_at,
+        started_at=started_at,
+        finished_at=finished_at,
+        retry_count=0,
+        failed_draft_available=False,
+        trace_completeness="COMPLETE",
+        association_state="linked" if trip.user_id else "unlinked",
+        association_version=1,
+        identity_erased_at=None,
+        user_trip_id=trip.id,
+        user_id=trip.user_id,
+        source_updated_at=now,
+        synced_at=now,
+    )
+    steps = [
+        AdminTripStepProjection(
+            source_step_id=20_000 + index,
+            job_id=trip.hermes_job_id,
+            source_version=1,
+            stage="FINAL_WRITER",
+            status="SUCCESS" if terminal else "RUNNING",
+            attempt=1,
+            publish_retry_round=0,
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_ms=elapsed_ms // 2 if terminal else None,
+            source_updated_at=now,
+            synced_at=now,
+        )
+    ]
+    return projection, steps
+
+
 @pytest.mark.asyncio
 async def test_dashboard_and_trip_generation_formulas_filters_and_durations(
     client,
@@ -156,6 +220,18 @@ async def test_dashboard_and_trip_generation_formulas_filters_and_durations(
     ]
     async with session_factory() as session, session.begin():
         session.add_all(rows)
+        await session.flush()
+        projections = [_projection(row, index=index, now=now) for index, row in enumerate(rows)]
+        session.add_all([projection for projection, _steps in projections])
+        session.add_all([step for _projection_row, steps in projections for step in steps])
+        state = await session.get(AdminProjectionConsumerState, 1)
+        state.applied_high_watermark = 6
+        state.latest_heartbeat_watermark = 6
+        state.latest_heartbeat_observed_at = now
+        state.sync_checked_at = now
+        state.next_expected_sequence = 7
+        state.stream_state = "ACTIVE"
+        state.initialization_state = "INITIALIZED"
 
     headers = _headers(test_settings, token)
     dashboard = await client.get("/api/admin/dashboard", headers=headers)
@@ -177,12 +253,12 @@ async def test_dashboard_and_trip_generation_formulas_filters_and_durations(
     assert body["terminal_success_rate"]["value"] == 0.4
     assert body["valid_guide_rate"]["value"] == 0.2
     assert body["no_candidates_rate"]["value"] == 0.2
-    assert body["slow_over_180s"] == {
-        "count": 3,
-        "rate": {"value": 0.5, "not_applicable": False},
+    assert body["slow_tasks"] == {
+        "count": 4,
+        "rate": {"value": 4 / 6, "not_applicable": False},
     }
     assert body["duration_ms"]["total"] == {"p50": 100_000.0, "p95": 200_000.0}
-    assert body["duration_ms"]["stages"]["writer"] == {
+    assert body["duration_ms"]["stages"]["FINAL_WRITER"] == {
         "p50": 50_000.0,
         "p95": 100_000.0,
     }

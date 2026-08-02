@@ -3,27 +3,34 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from src.admin.reports import ratio, trip_exception
-from src.db.models import UserTrip
+from src.db.models import AdminTripProjection
 
 
 def _trip(**changes):
     now = datetime.now(UTC)
     values = {
-        "public_id": "trip_test",
-        "client_request_id": "request",
-        "request_hash": "x" * 64,
-        "request_json": {"to_city": "重庆", "days": 3},
+        "job_id": "trip_test",
+        "source_id": 1,
+        "source_version": 1,
+        "source": "WEB",
         "city": "重庆",
         "days": 3,
         "status": "RUNNING",
-        "telemetry_json": {},
+        "guide_result_state": "NOT_APPLICABLE",
         "created_at": now - timedelta(seconds=181),
-        "updated_at": now,
-        "visible_until": now + timedelta(days=7),
-        "reconciliation_attempts": 0,
+        "started_at": now - timedelta(seconds=181),
+        "retry_count": 0,
+        "failed_draft_available": False,
+        "trace_completeness": "COMPLETE",
+        "association_state": "unlinked",
+        "association_version": 1,
+        "source_updated_at": now,
+        "synced_at": now,
     }
     values.update(changes)
-    return UserTrip(**values)
+    if "created_at" in changes and "started_at" not in changes:
+        values["started_at"] = changes["created_at"]
+    return AdminTripProjection(**values)
 
 
 def test_report_zero_denominator_is_not_applicable():

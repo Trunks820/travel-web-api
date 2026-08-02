@@ -146,6 +146,11 @@ async def submit_trip(
     correlation_id: str,
 ) -> Submission:
     normalized = body.trip_request.normalized()
+    supplied_fields = {
+        field_name: "USER_SUPPLIED"
+        for field_name in body.trip_request.model_fields_set
+        if field_name in normalized
+    }
     request_hash = normalized_request_hash(normalized)
     try:
         reservation = await reserve_trip(
@@ -155,6 +160,7 @@ async def submit_trip(
             client_request_id=body.request_id,
             request_hash=request_hash,
             request_json=normalized,
+            request_field_provenance=supplied_fields,
         )
     except RequestIdConflict as exc:
         raise ApiError(409, "REQUEST_ID_CONFLICT", "request_id 已用于其他请求。") from exc

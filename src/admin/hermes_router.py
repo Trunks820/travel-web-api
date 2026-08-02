@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Path, Query, Request, Response
@@ -14,8 +14,6 @@ from src.admin.schemas import (
     AdminArtifactListResponse,
     AdminErrorResponse,
     AdminFailedDraftResponse,
-    AdminTripJobDetailResponse,
-    AdminTripJobListResponse,
 )
 from src.api.errors import ApiError
 from src.db.session import get_db_session
@@ -188,81 +186,6 @@ async def _audit_sensitive_read(
         client={"user_agent": request.headers.get("user-agent", "")[:200]},
     )
     await db.commit()
-
-
-@router.get(
-    "/trip-jobs",
-    response_model=AdminTripJobListResponse,
-    responses=COMMON_READ_RESPONSES,
-)
-async def admin_trip_jobs(
-    request: Request,
-    time_from: datetime | None = None,
-    time_to: datetime | None = None,
-    city: Annotated[str | None, Query(min_length=1, max_length=120)] = None,
-    status: TripStatus | None = None,
-    result_type: TripResultType | None = None,
-    error_code: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
-    detailed_reason: DetailedReason | None = None,
-    page: Annotated[int, Query(ge=1)] = 1,
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    _admin: AdminContext = CURRENT_ADMIN,
-) -> dict[str, object]:
-    normalized_from, normalized_to = _validate_time_range(time_from, time_to)
-    if normalized_from is None:
-        normalized_from = datetime.now(UTC) - timedelta(days=7)
-    try:
-        upstream = await request.app.state.hermes.admin_trip_jobs(
-            correlation_id=_request_id(request),
-            params={
-                "time_from": _iso(normalized_from),
-                "time_to": _iso(normalized_to),
-                "city": city.strip() if city else None,
-                "status": status,
-                "result_type": result_type,
-                "error_code": error_code.strip().upper() if error_code else None,
-                "detailed_reason": detailed_reason,
-                "page": page,
-                "limit": limit,
-            },
-        )
-    except (HermesBusinessError, HermesIntegrationError) as exc:
-        raise _upstream_error(exc) from exc
-    return {
-        "ok": True,
-        "request_id": _request_id(request),
-        "page": upstream.page,
-        "limit": upstream.limit,
-        "total": upstream.total,
-        "items": [_trip_projection(item) for item in upstream.items],
-    }
-
-
-@router.get(
-    "/trip-jobs/{job_id}",
-    response_model=AdminTripJobDetailResponse,
-    responses={
-        **COMMON_READ_RESPONSES,
-        404: {"model": AdminErrorResponse, "description": "Trip job not found"},
-    },
-)
-async def admin_trip_job(
-    job_id: Annotated[str, Path(min_length=1, max_length=160)],
-    request: Request,
-    _admin: AdminContext = CURRENT_ADMIN,
-) -> dict[str, object]:
-    try:
-        upstream = await request.app.state.hermes.admin_trip_job(
-            job_id,
-            correlation_id=_request_id(request),
-        )
-    except (HermesBusinessError, HermesIntegrationError) as exc:
-        raise _upstream_error(exc) from exc
-    return {
-        "ok": True,
-        "request_id": _request_id(request),
-        "trip_job": _trip_projection(upstream.trip_job),
-    }
 
 
 @router.get(

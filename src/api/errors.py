@@ -43,7 +43,12 @@ def error_envelope(code: str, message: str, retryable: bool = False) -> dict[str
 def install_error_handlers(app: FastAPI) -> None:
     def sensitive_headers(request: Request) -> dict[str, str] | None:
         path = request.url.path
-        if path.endswith("/email") or path.endswith("/failed-draft") or path.endswith("/download"):
+        if (
+            path.endswith("/email")
+            or path.endswith("/failed-draft")
+            or path.endswith("/download")
+            or path.endswith("/guide-review")
+        ):
             return {"Cache-Control": "private, no-store"}
         return None
 
