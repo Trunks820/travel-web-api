@@ -70,7 +70,7 @@ def test_projection_alarm_is_coupled_to_success_state() -> None:
         "request_id": "req-test",
         "as_of": "2026-08-02T00:00:00Z",
         "page": 1,
-        "limit": 20,
+        "limit": 10,
         "total": 0,
         "items": [],
     }

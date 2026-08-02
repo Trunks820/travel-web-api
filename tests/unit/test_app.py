@@ -274,6 +274,10 @@ def test_openapi_metadata_is_the_frontend_contract_boundary() -> None:
     assert trip_list["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/AdminTripJobListResponse"
     )
+    limit_parameter = next(
+        parameter for parameter in trip_list["parameters"] if parameter["name"] == "limit"
+    )
+    assert limit_parameter["schema"]["enum"] == [10, 20, 50, 100]
     assert "HermesResult" in response.json()["components"]["schemas"]
     assert response.json()["x-external-schema-resolution"] == {
         "urn:yuntu:travel-web-api:openapi:HermesResult": (

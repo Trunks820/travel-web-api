@@ -154,7 +154,7 @@ class ProjectionSuccess(ProjectionModel):
 
 class AdminTripJobListResponse(ProjectionSuccess):
     page: int = Field(ge=1)
-    limit: Literal[20, 50, 100]
+    limit: Literal[10, 20, 50, 100]
     total: int = Field(ge=0)
     items: list[TripJobSummary] = Field(max_length=100)
 

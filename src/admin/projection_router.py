@@ -198,7 +198,7 @@ async def admin_trip_jobs(
     trace_completeness: Annotated[list[TraceCompleteness] | None, Query()] = None,
     has_final_guide: bool | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
-    limit: Literal[20, 50, 100] = 20,
+    limit: Literal[10, 20, 50, 100] = 20,
     _admin: AdminContext = CURRENT_ADMIN,
     db: AsyncSession = DB_SESSION,
 ) -> dict[str, Any]:

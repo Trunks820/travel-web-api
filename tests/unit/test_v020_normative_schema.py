@@ -100,7 +100,7 @@ def _base_response() -> dict:
     [
         (
             "AdminTripJobListResponse",
-            {**_base_response(), "page": 1, "limit": 20, "total": 1, "items": [_job()]},
+            {**_base_response(), "page": 1, "limit": 10, "total": 1, "items": [_job()]},
         ),
         (
             "AdminTripJobDetailResponse",
