@@ -251,6 +251,7 @@ class FakeHermes:
                 "result_id": result_record_id,
                 "city": {"name": "重庆"},
                 "request": {
+                    "from_city": "成都",
                     "to_city": "重庆",
                     "days": 3,
                     "people_count": 2,
@@ -268,6 +269,37 @@ class FakeHermes:
                             "level": "MODERATE",
                             "commute_status": "WITHIN_LIMIT",
                             "total_commute_minutes": 0,
+                        },
+                        "transport": {
+                            "from_city": "成都",
+                            "to_city": "重庆",
+                            "query_date": "2026-08-05",
+                            "source": "realtime",
+                            "modes": [
+                                {
+                                    "mode": "train",
+                                    "min_duration_minutes": 90,
+                                    "price_range": "¥100-200",
+                                    "price_source": "realtime",
+                                    "daily_count": 12,
+                                    "data_source": "realtime",
+                                    "availability_status": "available_at_query",
+                                    "availability_checked_at": "2026-08-03T10:00:00+08:00",
+                                    "options": [
+                                        {
+                                            "type": "train",
+                                            "no": "G1",
+                                            "departure_time": "08:00",
+                                            "arrival_time": "09:30",
+                                            "duration_minutes": 90,
+                                            "price": "¥150",
+                                            "departure_station": "成都东",
+                                            "arrival_station": "重庆北",
+                                            "airline": None,
+                                        }
+                                    ],
+                                }
+                            ],
                         },
                         "days": [],
                         "provider_payload": {"nested_secret": True},

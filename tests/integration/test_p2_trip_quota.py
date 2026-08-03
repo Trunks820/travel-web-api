@@ -477,7 +477,12 @@ async def test_owned_job_sse_result_artifact_places_and_cross_user_404(
             params={"job_id": job_id},
         )
         assert result.status_code == 200
-        assert result.json()["result_id"] == 501
+        result_payload = result.json()
+        assert result_payload["result_id"] == 501
+        assert result_payload["request"]["from_city"] == "成都"
+        assert result_payload["plans"][0]["transport"]["source"] == "realtime"
+        assert result_payload["plans"][0]["transport"]["modes"][0]["mode"] == "train"
+        assert result_payload["plans"][0]["transport"]["modes"][0]["options"][0]["no"] == "G1"
         assert "provider_payload" not in result.text
 
         pdf_created = await owner_client.post(

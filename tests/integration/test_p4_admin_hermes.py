@@ -130,15 +130,24 @@ async def test_admin_trip_routes_auth_default_window_filters_and_safe_projection
         )
     listing = await client.get(
         "/api/admin/trip-jobs",
-        params={"city": " 重庆 ", "status": "PENDING"},
+        params={"city": " 重庆 ", "status": "PENDING", "limit": 10},
         headers=admin_headers,
     )
     assert listing.status_code == 200
+    assert listing.json()["limit"] == 10
     item = listing.json()["items"][0]
     assert item["is_slow"] is True
     assert item["timeout_settlement_anomaly"] is True
     assert item["association"] == {"state": "unlinked"}
     assert hermes.admin_calls == []
+
+    unsupported_limit = await client.get(
+        "/api/admin/trip-jobs",
+        params={"limit": 15},
+        headers=admin_headers,
+    )
+    assert unsupported_limit.status_code == 422
+    assert unsupported_limit.json()["error"]["code"] == "VALIDATION_ERROR"
 
     invalid_range = await client.get(
         "/api/admin/trip-jobs",

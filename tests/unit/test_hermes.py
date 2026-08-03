@@ -30,6 +30,87 @@ async def test_hermes_readiness_validates_json_and_sends_internal_headers() -> N
 
 
 @pytest.mark.asyncio
+async def test_result_preserves_transport_contract_and_drops_unknown_fields() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "schema_version": "1.4",
+                "result_id": 9,
+                "city": {"name": "重庆"},
+                "request": {
+                    "from_city": "成都",
+                    "to_city": "重庆",
+                    "days": 3,
+                    "people_count": 1,
+                    "preferences": [],
+                    "avoid": [],
+                },
+                "weather": None,
+                "plans": [
+                    {
+                        "plan_id": "plan_a",
+                        "title": "测试行程",
+                        "summary": "测试摘要",
+                        "tags": [],
+                        "pace": {
+                            "level": "RELAXED",
+                            "commute_status": "WITHIN_LIMIT",
+                            "total_commute_minutes": 0,
+                        },
+                        "transport": {
+                            "from_city": "成都",
+                            "to_city": "重庆",
+                            "query_date": "2026-08-05",
+                            "source": "realtime",
+                            "modes": [
+                                {
+                                    "mode": "train",
+                                    "min_duration_minutes": 90,
+                                    "price_range": "¥100-200",
+                                    "price_source": "realtime",
+                                    "daily_count": 12,
+                                    "data_source": "realtime",
+                                    "availability_status": "available_at_query",
+                                    "availability_checked_at": None,
+                                    "options": [
+                                        {
+                                            "type": "train",
+                                            "no": "G1",
+                                            "departure_time": "08:00",
+                                            "arrival_time": "09:30",
+                                            "duration_minutes": 90,
+                                            "price": "¥150",
+                                            "departure_station": "成都东",
+                                            "arrival_station": "重庆北",
+                                            "airline": None,
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        "days": [],
+                        "provider_payload": {"secret": True},
+                    }
+                ],
+            },
+        )
+
+    client = HermesClient.from_settings(
+        Settings(app_env="test", hermes_internal_credential="internal-secret"),
+        transport=httpx.MockTransport(handler),
+    )
+    result = await client.result(9, job_id="job-9", correlation_id="request-9")
+    await client.close()
+
+    payload = result.model_dump(exclude_none=True)
+    assert payload["request"]["from_city"] == "成都"
+    assert payload["plans"][0]["transport"]["source"] == "realtime"
+    assert payload["plans"][0]["transport"]["modes"][0]["options"][0]["no"] == "G1"
+    assert "provider_payload" not in payload["plans"][0]
+
+
+@pytest.mark.asyncio
 async def test_hermes_readiness_normalizes_protocol_errors() -> None:
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=["not", "an", "object"])

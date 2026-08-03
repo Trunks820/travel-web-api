@@ -1,8 +1,11 @@
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import httpx
 from fastapi.testclient import TestClient
 
+from src.admin import projection_router
+from src.admin.auth import get_current_admin
 from src.app import create_app
 from src.auth.dependencies import get_current_auth
 from src.config import Settings
@@ -67,6 +70,44 @@ async def _fake_db():
     yield SimpleNamespace()
 
 
+class _EmptyRows:
+    def all(self):
+        return []
+
+
+class _FakeProjectionDb:
+    async def scalar(self, _statement):
+        return 0
+
+    async def execute(self, _statement):
+        return _EmptyRows()
+
+
+async def _fake_projection_db():
+    yield _FakeProjectionDb()
+
+
+async def _fake_admin():
+    return SimpleNamespace()
+
+
+async def _fake_projection_health(_session, *, sensitive: bool = False):
+    del sensitive
+    now = datetime.now(UTC)
+    return SimpleNamespace(
+        as_of=now,
+        freshness={
+            "data_as_of": now,
+            "sync_checked_at": now,
+            "sync_lag_seconds": 0,
+            "source_high_watermark": 0,
+            "applied_high_watermark": 0,
+            "projection_state": "FRESH",
+        },
+        alarm=None,
+    )
+
+
 def _make_artifact_app(
     monkeypatch,
     handler,
@@ -115,6 +156,22 @@ def test_ready_checks_database_and_hermes() -> None:
         hermes_down = client.get("/ready")
     assert hermes_down.status_code == 503
     assert hermes_down.json()["error"]["code"] == "NOT_READY"
+
+
+def test_admin_trip_job_limit_is_parsed_before_allowlist_validation(monkeypatch) -> None:
+    app = make_app()
+    app.dependency_overrides[get_current_admin] = _fake_admin
+    app.dependency_overrides[get_db_session] = _fake_projection_db
+    monkeypatch.setattr(projection_router, "_health", _fake_projection_health)
+
+    with TestClient(app) as client:
+        accepted = client.get("/api/admin/trip-jobs", params={"limit": "10"})
+        rejected = client.get("/api/admin/trip-jobs", params={"limit": "15"})
+
+    assert accepted.status_code == 200
+    assert accepted.json()["limit"] == 10
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
 def test_request_boundary_rejects_origin_content_type_and_size() -> None:
@@ -280,9 +337,7 @@ def test_openapi_metadata_is_the_frontend_contract_boundary() -> None:
     assert limit_parameter["schema"]["enum"] == [10, 20, 50, 100]
     assert "HermesResult" in response.json()["components"]["schemas"]
     assert response.json()["x-external-schema-resolution"] == {
-        "urn:yuntu:travel-web-api:openapi:HermesResult": (
-            "#/components/schemas/HermesResult"
-        )
+        "urn:yuntu:travel-web-api:openapi:HermesResult": ("#/components/schemas/HermesResult")
     }
     failed_draft = paths["/api/admin/trip-jobs/{job_id}/failed-draft"]["get"]
     assert {"200", "401", "403", "404", "502", "503"} <= failed_draft["responses"].keys()

@@ -51,6 +51,8 @@ TripStatus = Literal["PENDING", "RUNNING", "SUCCESS", "FAILED", "TIMEOUT", "REJE
 ResultType = Literal["PLAN_READY", "NO_CANDIDATES", "NO_USABLE_ROUTE", "UNKNOWN"]
 AssociationState = Literal["linked", "de-identified", "unlinked"]
 StageOutcome = Literal["RUNNING", "SUCCESS", "FAILED", "TIMEOUT"]
+TRIP_JOB_PAGE_LIMITS = (10, 20, 50, 100)
+USER_TRIP_JOB_PAGE_LIMITS = (10, 20)
 
 COMMON_RESPONSES = {
     401: {"model": AdminErrorResponse, "description": "Authenticated session required"},
@@ -174,6 +176,12 @@ def _projection_filters(
     return filters
 
 
+def _validate_page_limit(limit: int, allowed: tuple[int, ...]) -> int:
+    if limit not in allowed:
+        raise ApiError(422, "VALIDATION_ERROR", "请求参数无效。")
+    return limit
+
+
 @router.get(
     "/trip-jobs",
     response_model=AdminTripJobListResponse,
@@ -198,14 +206,16 @@ async def admin_trip_jobs(
     trace_completeness: Annotated[list[TraceCompleteness] | None, Query()] = None,
     has_final_guide: bool | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
-    limit: Literal[10, 20, 50, 100] = 20,
+    limit: Annotated[
+        int,
+        Query(ge=1, json_schema_extra={"enum": list(TRIP_JOB_PAGE_LIMITS)}),
+    ] = 20,
     _admin: AdminContext = CURRENT_ADMIN,
     db: AsyncSession = DB_SESSION,
 ) -> dict[str, Any]:
+    limit = _validate_page_limit(limit, TRIP_JOB_PAGE_LIMITS)
     start, end = _validate_time_range(request, time_from, time_to)
-    stage_start, stage_end = _validate_time_range(
-        request, stage_started_from, stage_started_to
-    )
+    stage_start, stage_end = _validate_time_range(request, stage_started_from, stage_started_to)
     if executed_stage is None and any(
         value is not None for value in (stage_outcome, stage_start, stage_end)
     ):
@@ -232,8 +242,7 @@ async def admin_trip_jobs(
         has_final_guide=has_final_guide,
     )
     total = int(
-        await db.scalar(select(func.count()).select_from(AdminTripProjection).where(*filters))
-        or 0
+        await db.scalar(select(func.count()).select_from(AdminTripProjection).where(*filters)) or 0
     )
     rows = (
         await db.execute(
@@ -333,10 +342,14 @@ async def admin_user_trip_jobs(
     user_id: Annotated[str, Path(min_length=1, max_length=80)],
     request: Request,
     page: Annotated[int, Query(ge=1)] = 1,
-    limit: Literal[10, 20] = 10,
+    limit: Annotated[
+        int,
+        Query(ge=1, json_schema_extra={"enum": list(USER_TRIP_JOB_PAGE_LIMITS)}),
+    ] = 10,
     _admin: AdminContext = CURRENT_ADMIN,
     db: AsyncSession = DB_SESSION,
 ) -> dict[str, Any]:
+    limit = _validate_page_limit(limit, USER_TRIP_JOB_PAGE_LIMITS)
     health = await _health(db)
     internal_user_id = await _resolve_public_user_id(db, user_id)
     filters = [
@@ -345,8 +358,7 @@ async def admin_user_trip_jobs(
         AdminTripProjection.identity_erased_at.is_(None),
     ]
     total = int(
-        await db.scalar(select(func.count()).select_from(AdminTripProjection).where(*filters))
-        or 0
+        await db.scalar(select(func.count()).select_from(AdminTripProjection).where(*filters)) or 0
     )
     rows = (
         await db.execute(
@@ -437,9 +449,7 @@ async def admin_generation_pipeline(
             )
         )
     ).all()
-    excluded_jobs = {
-        step.job_id for step, completeness in step_rows if completeness != "COMPLETE"
-    }
+    excluded_jobs = {step.job_id for step, completeness in step_rows if completeness != "COMPLETE"}
     by_stage: dict[str, list[AdminTripStepProjection]] = {}
     excluded_by_stage: dict[str, set[str]] = {}
     for step, completeness in step_rows:
@@ -471,9 +481,7 @@ async def admin_generation_pipeline(
                 "success_count": len(successful),
                 "failed_count": sum(row.status == "FAILED" for row in rows),
                 "timeout_count": sum(row.status == "TIMEOUT" for row in rows),
-                "retry_count": sum(
-                    row.attempt > 1 or row.publish_retry_round > 0 for row in rows
-                ),
+                "retry_count": sum(row.attempt > 1 or row.publish_retry_round > 0 for row in rows),
                 "excluded_trace_task_count": len(excluded_by_stage.get(stage, set())),
                 "ended_count": len(ended),
                 "success_rate": len(successful) / len(ended) if ended else None,
@@ -544,9 +552,7 @@ async def _audit_guide_outcome(
                 request_id=_request_id(request),
                 source_ip=request.client.host if request.client else "unknown",
                 after=(
-                    {"result_record_id": result_record_id}
-                    if result_record_id is not None
-                    else None
+                    {"result_record_id": result_record_id} if result_record_id is not None else None
                 ),
                 client={"user_agent": request.headers.get("user-agent", "")[:200]},
             )
@@ -660,9 +666,7 @@ async def admin_guide_review(
                 error_code=error.code,
             )
         except _AuditCommitFailed:
-            raise ApiError(
-                503, "AUDIT_UNAVAILABLE", "审计服务暂不可用。", retryable=True
-            ) from None
+            raise ApiError(503, "AUDIT_UNAVAILABLE", "审计服务暂不可用。", retryable=True) from None
         raise error
 
     try:
@@ -744,10 +748,7 @@ async def admin_guide_review(
             if current is None:
                 raise ApiError(404, "TRIP_JOB_NOT_FOUND", "未找到攻略任务。")
             row, public_id, display_name = current
-            if (
-                row.guide_result_state != "AVAILABLE"
-                or row.result_record_id != result_record_id
-            ):
+            if row.guide_result_state != "AVAILABLE" or row.result_record_id != result_record_id:
                 raise ApiError(
                     500,
                     "GUIDE_RESULT_INCONSISTENT",
@@ -811,9 +812,7 @@ async def admin_guide_review(
     except Exception as exc:
         if audit_started and not audit_committed:
             logger.exception("guide review success audit failed closed")
-            raise ApiError(
-                503, "AUDIT_UNAVAILABLE", "审计服务暂不可用。", retryable=True
-            ) from None
+            raise ApiError(503, "AUDIT_UNAVAILABLE", "审计服务暂不可用。", retryable=True) from None
         error = _guide_error(exc)
         if not admin.is_owner:
             try:

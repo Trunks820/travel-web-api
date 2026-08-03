@@ -128,9 +128,7 @@ class HermesProjectionJobPayload(HermesModel):
     current_stage: str | None = Field(default=None, max_length=120)
     result_type: Literal["PLAN_READY", "NO_CANDIDATES", "NO_USABLE_ROUTE", "UNKNOWN"] | None
     result_record_id: int | None = Field(default=None, ge=1)
-    guide_result_state: Literal[
-        "NOT_APPLICABLE", "LEGAL_NO_GUIDE", "AVAILABLE", "INCONSISTENT"
-    ]
+    guide_result_state: Literal["NOT_APPLICABLE", "LEGAL_NO_GUIDE", "AVAILABLE", "INCONSISTENT"]
     error_code: str | None = Field(default=None, max_length=80)
     safe_error: HermesAdminSafeError | None
     detailed_reason: str | None = Field(default=None, max_length=80)
@@ -226,10 +224,16 @@ class ResultCity(HermesModel):
 
 
 class ResultRequest(HermesModel):
+    from_city: str | None = Field(default=None, max_length=120)
+    to_city: str | None = Field(default=None, max_length=120)
+    start_date: str | None = Field(default=None, max_length=32)
+    end_date: str | None = Field(default=None, max_length=32)
     days: int = Field(ge=1, le=30)
     people_count: int = Field(ge=1, le=30)
     preferences: list[str] = Field(default_factory=list, max_length=20)
     avoid: list[str] = Field(default_factory=list, max_length=20)
+    notes: str = Field(default="", max_length=2_000)
+    commute_mode: Literal["driving", "transit", "walking", "cycling"] | None = None
 
 
 class ResultWeatherDay(HermesModel):
@@ -330,6 +334,42 @@ class ResultAccommodation(HermesModel):
     reason: str | None = Field(default=None, max_length=1_000)
 
 
+class ResultTransportOption(HermesModel):
+    type: Literal["train", "flight"]
+    no: str = Field(max_length=80)
+    departure_time: str = Field(max_length=64)
+    arrival_time: str = Field(max_length=64)
+    duration_minutes: int = Field(ge=0)
+    price: str | None = Field(default=None, max_length=80)
+    departure_station: str | None = Field(default=None, max_length=160)
+    arrival_station: str | None = Field(default=None, max_length=160)
+    airline: str | None = Field(default=None, max_length=160)
+
+
+class ResultTransportMode(HermesModel):
+    mode: Literal["train", "flight"]
+    min_duration_minutes: int = Field(ge=0)
+    price_range: str = Field(max_length=160)
+    price_source: Literal["realtime", "static_reference"]
+    daily_count: int = Field(ge=0)
+    data_source: Literal["realtime", "static_fallback"]
+    availability_status: Literal[
+        "available_at_query",
+        "sold_out_at_query",
+        "unknown",
+    ] = "unknown"
+    availability_checked_at: str | None = Field(default=None, max_length=64)
+    options: list[ResultTransportOption] = Field(default_factory=list, max_length=200)
+
+
+class ResultTransport(HermesModel):
+    from_city: str = Field(max_length=120)
+    to_city: str = Field(max_length=120)
+    query_date: str | None = Field(default=None, max_length=32)
+    source: Literal["realtime", "mixed", "static_fallback"]
+    modes: list[ResultTransportMode] = Field(default_factory=list, max_length=10)
+
+
 class ResultPlan(HermesModel):
     plan_id: str = Field(max_length=160)
     title: str = Field(max_length=300)
@@ -337,6 +377,7 @@ class ResultPlan(HermesModel):
     tags: list[str] = Field(default_factory=list, max_length=30)
     pace: ResultPace
     accommodation: ResultAccommodation | None = None
+    transport: ResultTransport | None = None
     days: list[ResultDay] = Field(default_factory=list, max_length=30)
 
 
