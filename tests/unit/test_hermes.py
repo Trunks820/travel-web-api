@@ -9,6 +9,7 @@ from src.integrations.hermes import (
     HermesClient,
     HermesIntegrationError,
 )
+from tests.factories import schema_2_cost_estimate
 
 
 @pytest.mark.asyncio
@@ -35,18 +36,16 @@ async def test_result_preserves_transport_contract_and_drops_unknown_fields() ->
         return httpx.Response(
             200,
             json={
-                "schema_version": "1.4",
+                "schema_version": "2.0",
                 "result_id": 9,
                 "city": {"name": "重庆"},
                 "request": {
-                    "from_city": "成都",
-                    "to_city": "重庆",
                     "days": 3,
                     "people_count": 1,
                     "preferences": [],
                     "avoid": [],
                 },
-                "weather": None,
+                "weather": {"status": "skipped_disabled", "city": "重庆", "days": []},
                 "plans": [
                     {
                         "plan_id": "plan_a",
@@ -90,6 +89,7 @@ async def test_result_preserves_transport_contract_and_drops_unknown_fields() ->
                             ],
                         },
                         "days": [],
+                        "cost_estimate": schema_2_cost_estimate(),
                         "provider_payload": {"secret": True},
                     }
                 ],
@@ -104,7 +104,7 @@ async def test_result_preserves_transport_contract_and_drops_unknown_fields() ->
     await client.close()
 
     payload = result.model_dump(exclude_none=True)
-    assert payload["request"]["from_city"] == "成都"
+    assert set(payload["request"]) == {"days", "people_count", "preferences", "avoid"}
     assert payload["plans"][0]["transport"]["source"] == "realtime"
     assert payload["plans"][0]["transport"]["modes"][0]["options"][0]["no"] == "G1"
     assert "provider_payload" not in payload["plans"][0]

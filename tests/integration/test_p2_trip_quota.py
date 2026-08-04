@@ -479,7 +479,12 @@ async def test_owned_job_sse_result_artifact_places_and_cross_user_404(
         assert result.status_code == 200
         result_payload = result.json()
         assert result_payload["result_id"] == 501
-        assert result_payload["request"]["from_city"] == "成都"
+        assert set(result_payload["request"]) == {
+            "days",
+            "people_count",
+            "preferences",
+            "avoid",
+        }
         assert result_payload["plans"][0]["transport"]["source"] == "realtime"
         assert result_payload["plans"][0]["transport"]["modes"][0]["mode"] == "train"
         assert result_payload["plans"][0]["transport"]["modes"][0]["options"][0]["no"] == "G1"
@@ -577,7 +582,10 @@ async def test_owned_job_sse_result_artifact_places_and_cross_user_404(
         owner_trip = await session.scalar(select(UserTrip).where(UserTrip.user_id == owner.id))
         assert owner_trip is not None and owner_trip.status == "SUCCESS"
         assert owner_trip.telemetry_json["plan_count"] == 1
-        assert owner_trip.telemetry_json["result_schema_version"] == "1.5"
+        assert owner_trip.telemetry_json["result_schema_version"] == "2.0"
+        assert owner_trip.telemetry_json["cost_estimate_completeness"] == "complete"
+        assert "min_cny" not in owner_trip.telemetry_json
+        assert "provider_payload" not in owner_trip.telemetry_json
         quota = await session.get(TripQuotaEntry, owner_trip.quota_entry_id)
         assert quota is not None and quota.status == "CONSUMED"
 

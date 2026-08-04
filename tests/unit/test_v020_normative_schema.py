@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -8,12 +9,16 @@ from jsonschema import Draft202012Validator, ValidationError
 from referencing import Registry, Resource
 
 from src.app import create_app
+from tests.factories import schema_2_cost_estimate
 
-FROZEN_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "travel-admin"
-    / "docs"
-    / "v0.2.0-operational-trace-schema.json"
+FROZEN_SCHEMA_PATH = Path(
+    os.environ.get(
+        "TRAVEL_ADMIN_SCHEMA_PATH",
+        Path(__file__).resolve().parents[3]
+        / "travel-admin"
+        / "docs"
+        / "v0.2.0-operational-trace-schema.json",
+    )
 )
 HERMES_RESULT_URN = "urn:yuntu:travel-web-api:openapi:HermesResult"
 
@@ -170,7 +175,7 @@ def _base_response() -> dict:
                 },
                 "request_source": "BFF_USER_TRIP",
                 "final_guide": {
-                    "schema_version": "1.5",
+                    "schema_version": "2.0",
                     "result_id": 9001,
                     "city": {"name": "重庆"},
                     "request": {
@@ -179,7 +184,7 @@ def _base_response() -> dict:
                         "preferences": ["美食"],
                         "avoid": [],
                     },
-                    "weather": None,
+                    "weather": {"status": "skipped_disabled", "city": "重庆", "days": []},
                     "plans": [
                         {
                             "plan_id": "safe",
@@ -192,6 +197,7 @@ def _base_response() -> dict:
                                 "total_commute_minutes": 0,
                             },
                             "days": [],
+                            "cost_estimate": schema_2_cost_estimate(),
                         }
                     ],
                 },
@@ -225,12 +231,26 @@ def test_guide_review_schema_rejects_duplicate_top_level_association() -> None:
         "request": None,
         "request_source": "UNAVAILABLE",
         "final_guide": {
-            "schema_version": "1.5",
+            "schema_version": "2.0",
             "result_id": 9001,
             "city": {"name": "重庆"},
             "request": {"days": 3, "people_count": 2},
-            "weather": None,
-            "plans": [],
+            "weather": {"status": "skipped_disabled", "city": "重庆", "days": []},
+            "plans": [
+                {
+                    "plan_id": "safe",
+                    "title": "安全行程",
+                    "summary": "安全摘要",
+                    "tags": [],
+                    "pace": {
+                        "level": "MODERATE",
+                        "commute_status": "WITHIN_LIMIT",
+                        "total_commute_minutes": 0,
+                    },
+                    "days": [],
+                    "cost_estimate": schema_2_cost_estimate(),
+                }
+            ],
         },
         "artifacts": [],
         "association": {"state": "unlinked"},

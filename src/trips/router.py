@@ -13,6 +13,7 @@ from src.api.errors import ApiError
 from src.auth.dependencies import AuthContext, get_current_auth
 from src.db.session import get_db_session
 from src.integrations.hermes import HermesBusinessError, HermesIntegrationError
+from src.integrations.hermes_models import HermesResult
 from src.quota.service import (
     TripOwnershipError,
     owned_success_trip_by_result,
@@ -235,7 +236,11 @@ async def job_stream(
     )
 
 
-@router.get("/results/{result_record_id}")
+@router.get(
+    "/results/{result_record_id}",
+    response_model=HermesResult,
+    response_model_exclude_none=True,
+)
 async def result(
     result_record_id: int,
     request: Request,
@@ -262,10 +267,18 @@ async def result(
         raise _upstream_error(exc) from exc
     if upstream.result_id != result_record_id:
         raise ApiError(502, "GENERATION_SERVICE_ERROR", "生成服务返回了无效响应。")
+    completeness_rank = {"complete": 0, "partial": 1, "unavailable": 2}
+    cost_completeness = max(
+        (plan.cost_estimate.completeness for plan in upstream.plans),
+        key=completeness_rank.__getitem__,
+    )
     await record_trip_telemetry(
         request.app.state.session_factory,
         trip_id=trip.id,
-        telemetry={"result_schema_version": upstream.schema_version},
+        telemetry={
+            "result_schema_version": upstream.schema_version,
+            "cost_estimate_completeness": cost_completeness,
+        },
     )
     return upstream.model_dump(exclude_none=True)
 

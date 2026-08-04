@@ -348,6 +348,7 @@ async def record_trip_telemetry(
             "total_elapsed_ms",
             "result_type",
             "result_schema_version",
+            "cost_estimate_completeness",
         }
         and isinstance(value, (str, int, float, bool))
     }

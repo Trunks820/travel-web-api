@@ -25,6 +25,7 @@ from src.integrations.hermes_models import (
     HermesResult,
     HermesTripCreated,
 )
+from tests.factories import schema_2_cost_estimate
 
 
 class FakeHermes:
@@ -247,12 +248,10 @@ class FakeHermes:
         self.result_calls.append((result_record_id, job_id))
         return HermesResult.model_validate(
             {
-                "schema_version": "1.5",
+                "schema_version": "2.0",
                 "result_id": result_record_id,
                 "city": {"name": "重庆"},
                 "request": {
-                    "from_city": "成都",
-                    "to_city": "重庆",
                     "days": 3,
                     "people_count": 2,
                     "preferences": ["美食"],
@@ -302,6 +301,7 @@ class FakeHermes:
                             ],
                         },
                         "days": [],
+                        "cost_estimate": schema_2_cost_estimate(include_internal_fields=True),
                         "provider_payload": {"nested_secret": True},
                     }
                 ],

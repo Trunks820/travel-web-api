@@ -128,10 +128,20 @@ def create_app(
         )
         if "HermesResult" not in schema.get("components", {}).get("schemas", {}):
             raise RuntimeError("HermesResult must be registered in OpenAPI components")
-        schema["x-external-schema-resolution"] = {
-            "urn:yuntu:travel-web-api:openapi:HermesResult": (
-                "#/components/schemas/HermesResult"
+        cost_components = {
+            "CostEstimateSummary",
+            "CostScenarioSummary",
+            "CostCategorySummary",
+            "CostMoneyRange",
+        }
+        missing_cost_components = cost_components - schema["components"]["schemas"].keys()
+        if missing_cost_components:
+            raise RuntimeError(
+                "Schema 2.0 cost models must be registered in OpenAPI components: "
+                + ", ".join(sorted(missing_cost_components))
             )
+        schema["x-external-schema-resolution"] = {
+            "urn:yuntu:travel-web-api:openapi:HermesResult": ("#/components/schemas/HermesResult")
         }
         app.openapi_schema = schema
         return schema

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Literal
+from datetime import datetime, timedelta
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class HermesModel(BaseModel):
@@ -224,16 +224,10 @@ class ResultCity(HermesModel):
 
 
 class ResultRequest(HermesModel):
-    from_city: str | None = Field(default=None, max_length=120)
-    to_city: str | None = Field(default=None, max_length=120)
-    start_date: str | None = Field(default=None, max_length=32)
-    end_date: str | None = Field(default=None, max_length=32)
     days: int = Field(ge=1, le=30)
     people_count: int = Field(ge=1, le=30)
     preferences: list[str] = Field(default_factory=list, max_length=20)
     avoid: list[str] = Field(default_factory=list, max_length=20)
-    notes: str = Field(default="", max_length=2_000)
-    commute_mode: Literal["driving", "transit", "walking", "cycling"] | None = None
 
 
 class ResultWeatherDay(HermesModel):
@@ -256,6 +250,13 @@ class ResultWeather(HermesModel):
 class ResultTimePreferences(HermesModel):
     daily_start: str | None = Field(default=None, max_length=16)
     daily_end: str | None = Field(default=None, max_length=16)
+    rest_windows: list[ResultRestWindow] = Field(default_factory=list, max_length=30)
+
+
+class ResultRestWindow(HermesModel):
+    days: str = Field(max_length=80)
+    start: str = Field(max_length=16)
+    end: str = Field(max_length=16)
 
 
 class ResultSchedule(HermesModel):
@@ -370,6 +371,156 @@ class ResultTransport(HermesModel):
     modes: list[ResultTransportMode] = Field(default_factory=list, max_length=10)
 
 
+CostCategory = Literal[
+    "intercity_transport",
+    "accommodation",
+    "local_transport",
+    "admission",
+    "meals",
+]
+COST_CATEGORY_ORDER: tuple[CostCategory, ...] = (
+    "intercity_transport",
+    "accommodation",
+    "local_transport",
+    "admission",
+    "meals",
+)
+CostCompleteness = Literal["complete", "partial", "unavailable"]
+CostCoverage = Literal["priced", "missing"]
+CostPriceBasis = Literal["sourced", "reference", "mixed", "policy_zero"]
+CostTotalScope = Literal["full_trip", "estimated_subset", "unavailable"]
+CostScenarioId = Literal["train_round_trip", "flight_round_trip", "without_intercity"]
+CostIntercityMode = Literal["train", "flight"]
+CostAssumptionCode = Literal[
+    "two_travellers_per_room",
+    "itinerary_days_minus_one_nights",
+    "four_travellers_per_taxi",
+    "adult_full_fare",
+    "two_main_meals_per_day",
+]
+CostExclusionCode = Literal["cycling_cost_not_included"]
+MoneyCny = Annotated[int, Field(strict=True, ge=0, multiple_of=10)]
+
+
+class CostMoneyRange(HermesModel):
+    min_cny: MoneyCny
+    max_cny: MoneyCny
+
+    @model_validator(mode="after")
+    def validate_order(self) -> CostMoneyRange:
+        if self.min_cny > self.max_cny:
+            raise ValueError("min_cny must be <= max_cny")
+        return self
+
+
+class CostCategorySummary(HermesModel):
+    category: CostCategory
+    coverage: CostCoverage
+    range: CostMoneyRange | None = None
+    price_basis: CostPriceBasis | None = None
+    basis_label: str = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_coverage(self) -> CostCategorySummary:
+        if self.coverage == "priced":
+            if self.range is None or self.price_basis is None:
+                raise ValueError("priced category requires range and price_basis")
+        elif self.range is not None or self.price_basis is not None:
+            raise ValueError("missing category cannot carry monetary fields")
+        return self
+
+
+class CostScenarioSummary(HermesModel):
+    scenario_id: CostScenarioId
+    intercity_mode: CostIntercityMode | None = None
+    label: str = Field(min_length=1, max_length=500)
+    total_scope: CostTotalScope
+    total_range: CostMoneyRange | None = None
+    categories: list[CostCategorySummary] = Field(min_length=5, max_length=5)
+    missing_categories: list[CostCategory] = Field(default_factory=list, max_length=5)
+
+    @model_validator(mode="after")
+    def validate_scenario(self) -> CostScenarioSummary:
+        expected_mode = {
+            "train_round_trip": "train",
+            "flight_round_trip": "flight",
+            "without_intercity": None,
+        }[self.scenario_id]
+        if self.intercity_mode != expected_mode:
+            raise ValueError("scenario id and intercity mode disagree")
+        if tuple(item.category for item in self.categories) != COST_CATEGORY_ORDER:
+            raise ValueError("cost categories must use the frozen order")
+        missing = [item.category for item in self.categories if item.coverage == "missing"]
+        if missing != self.missing_categories:
+            raise ValueError("missing_categories must match category coverage")
+        priced = [item for item in self.categories if item.coverage == "priced"]
+        expected_scope: CostTotalScope = (
+            "full_trip" if not missing else "estimated_subset" if priced else "unavailable"
+        )
+        if self.total_scope != expected_scope:
+            raise ValueError("total_scope disagrees with category coverage")
+        if expected_scope == "unavailable":
+            if self.total_range is not None:
+                raise ValueError("unavailable scenario cannot carry total_range")
+        else:
+            if self.total_range is None:
+                raise ValueError("priced scenario requires total_range")
+            visible_min = sum(item.range.min_cny for item in priced if item.range)
+            visible_max = sum(item.range.max_cny for item in priced if item.range)
+            if self.total_range.min_cny != visible_min or self.total_range.max_cny != visible_max:
+                raise ValueError("cost total must reconcile to category ranges")
+        if self.scenario_id == "without_intercity" and (
+            self.categories[0].category != "intercity_transport"
+            or self.categories[0].coverage != "missing"
+        ):
+            raise ValueError("without_intercity must report missing intercity")
+        return self
+
+
+class CostAssumptionSummary(HermesModel):
+    code: CostAssumptionCode
+    label: str = Field(min_length=1, max_length=500)
+
+
+class CostExclusionSummary(HermesModel):
+    code: CostExclusionCode
+    label: str = Field(min_length=1, max_length=500)
+
+
+class CostEstimateSummary(HermesModel):
+    snapshot_version: Literal["1"]
+    completeness: CostCompleteness
+    currency: Literal["CNY"]
+    estimated_at: datetime
+    scenarios: list[CostScenarioSummary] = Field(min_length=1, max_length=3)
+    assumptions: list[CostAssumptionSummary] = Field(default_factory=list, max_length=20)
+    exclusions: list[CostExclusionSummary] = Field(default_factory=list, max_length=20)
+    notice: str = Field(min_length=1, max_length=1_000)
+
+    @model_validator(mode="after")
+    def validate_summary(self) -> CostEstimateSummary:
+        if self.estimated_at.tzinfo is None or self.estimated_at.utcoffset() != timedelta(0):
+            raise ValueError("estimated_at must use UTC")
+        scenario_ids = [item.scenario_id for item in self.scenarios]
+        if len(set(scenario_ids)) != len(scenario_ids):
+            raise ValueError("scenario ids must be unique")
+        if "without_intercity" in scenario_ids and scenario_ids != ["without_intercity"]:
+            raise ValueError("without_intercity must be the sole scenario")
+        state_by_scope: dict[CostTotalScope, CostCompleteness] = {
+            "full_trip": "complete",
+            "estimated_subset": "partial",
+            "unavailable": "unavailable",
+        }
+        rank = {"complete": 0, "partial": 1, "unavailable": 2}
+        worst = max(
+            (state_by_scope[item.total_scope] for item in self.scenarios),
+            key=rank.__getitem__,
+        )
+        if self.completeness != worst:
+            raise ValueError("completeness must equal the worst scenario")
+        return self
+
+
 class ResultPlan(HermesModel):
     plan_id: str = Field(max_length=160)
     title: str = Field(max_length=300)
@@ -379,6 +530,7 @@ class ResultPlan(HermesModel):
     accommodation: ResultAccommodation | None = None
     transport: ResultTransport | None = None
     days: list[ResultDay] = Field(default_factory=list, max_length=30)
+    cost_estimate: CostEstimateSummary
 
 
 class ResultMustInclude(HermesModel):
@@ -393,27 +545,18 @@ class ResultMustInclude(HermesModel):
     place_id: int | None = Field(default=None, ge=1)
     reason: str | None = Field(default=None, max_length=1_000)
     matched_city: str | None = Field(default=None, max_length=120)
-
-
-class ResultCommuteModeReport(HermesModel):
-    requested: Literal["driving", "transit", "walking", "cycling"]
-    effective: Literal["driving", "transit", "walking", "cycling"]
-    effective_reason: Literal["requested", "feature_disabled"]
-    degraded_leg_count: int = Field(default=0, ge=0)
-    rationalized_leg_count: int = Field(default=0, ge=0)
-    duration_source: Literal["amap", "mixed", "estimated"] = "amap"
+    avoid_conflict: bool | None = None
 
 
 class HermesResult(HermesModel):
-    schema_version: str = Field(max_length=20)
+    schema_version: Literal["2.0"]
     result_id: int = Field(ge=1)
     city: ResultCity
     request: ResultRequest
-    weather: ResultWeather | None
+    weather: ResultWeather
     time_preferences: ResultTimePreferences | None = None
-    plans: list[ResultPlan] = Field(max_length=20)
+    plans: list[ResultPlan] = Field(min_length=1, max_length=20)
     must_include: list[ResultMustInclude] | None = Field(default=None, max_length=20)
-    commute_mode_report: ResultCommuteModeReport | None = None
 
 
 class HermesStructuredRequest(HermesModel):
