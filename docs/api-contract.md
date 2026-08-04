@@ -586,6 +586,7 @@ valid and retain their balances.
 GET  /api/admin/invitation-batches
 POST /api/admin/invitation-batches
 GET  /api/admin/invitation-batches/{batch_id}
+GET  /api/admin/invitation-batches/{batch_id}/plaintext-codes  # OWNER only
 POST /api/admin/invitation-batches/{batch_id}/disable
 POST /api/admin/invitation-codes/lookup
 POST /api/admin/invitation-codes/{code_id}/disable
@@ -598,16 +599,25 @@ cryptographically secure source in the exact uppercase format
 `YT-XXXX-XXXX`, excluding ambiguous characters such as `0/O` and `1/I/L`.
 Redemption trims surrounding whitespace and compares case-insensitively.
 
-Only a keyed server HMAC is stored. Raw codes are returned exactly once in the
-first successful creation response. Repeating the same idempotent request
-returns the original batch projection with `codes_disclosed=false`; it never
-re-displays secrets or creates another batch. A lost response has no recovery
-endpoint. Subsequent detail uses sequence labels such as `#001`, status, and
-redemption metadata only.
+Every code retains the keyed server HMAC used for redemption. Batches created
+after migration `0011` additionally store AES-GCM authenticated ciphertext,
+bound to the immutable public code ID, so the configured OWNER can recover
+plaintext without changing redemption semantics. Existing batches remain
+`plaintext_recoverable=false` and cannot be recovered. Repeating the same
+idempotent create request still returns the replay-safe batch projection with
+`codes_disclosed=false` and never creates another batch.
+
+`GET .../plaintext-codes` requires the OWNER-only
+`invitation.secret.read` capability, returns `Cache-Control: private,
+no-store`, and appends one `REVEAL_INVITATION_BATCH_CODES` audit event without
+codes or ciphertext. ADMIN receives `403 OWNER_REQUIRED`, and the denied read
+is audited. The ordinary batch-detail endpoint continues to expose sequence,
+status, and redemption metadata only.
 
 OWNER and ADMIN may create or irreversibly disable one code or a whole batch.
 Disablement never rolls back a redeemed account. Codes cannot be restored,
-edited, deleted, or re-displayed. Lookup accepts the full code only in the JSON
+edited, or deleted. Only OWNER may re-display encrypted new-batch plaintext.
+Lookup accepts the full code only in the JSON
 body and resolves the HMAC record; raw input is excluded from URL, logs,
 traces, audit bodies, and errors. `ACTIVE`, `EXPIRED`, `DISABLED`, and
 `EXHAUSTED` remain distinct.

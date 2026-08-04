@@ -70,8 +70,9 @@ A0 is documentation-only. It is accepted and opens P4.0-P4.5.
   revocation, and no automatic restoration of role/quota/history/session.
 - [x] Replace positive-only manual grants with immutable signed adjustments,
   non-negative post-balance, and one linked reversal.
-- [x] Freeze 1-200 short-code Invitation batches, 1-90 day expiry, HMAC-only
-  storage, one-time disclosure, lookup, and irreversible code/batch disable.
+- [x] Freeze 1-200 short-code Invitation batches, 1-90 day expiry, HMAC redemption
+  lookup plus OWNER-only encrypted plaintext recovery for post-0011 batches,
+  one-time creation disclosure, lookup, and irreversible code/batch disable.
 - [x] Freeze Trip exception taxonomy, failed Writer diagnostic boundary, and
   READY/EXPIRED read-only Artifact boundary.
 - [x] Freeze no recent re-authentication, MFA, or second-confirmation protocol;

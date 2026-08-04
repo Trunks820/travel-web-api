@@ -48,6 +48,7 @@ def install_error_handlers(app: FastAPI) -> None:
             or path.endswith("/failed-draft")
             or path.endswith("/download")
             or path.endswith("/guide-review")
+            or path.endswith("/plaintext-codes")
         ):
             return {"Cache-Control": "private, no-store"}
         return None

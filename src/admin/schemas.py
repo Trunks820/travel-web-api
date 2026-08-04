@@ -177,6 +177,7 @@ class AdminInvitationBatch(BaseModel):
     valid_days: int
     expires_at: datetime
     disabled_at: datetime | None
+    plaintext_recoverable: bool
     created_at: datetime
 
 
@@ -204,6 +205,16 @@ class AdminInvitationBatchDetailResponse(AdminSuccessResponse):
     batch: AdminInvitationBatch
     codes_disclosed: Literal[False]
     codes: list[AdminInvitationCodeProjection]
+
+
+class AdminInvitationPlaintextCodeProjection(AdminInvitationCodeProjection):
+    code: str
+
+
+class AdminInvitationBatchPlaintextResponse(AdminSuccessResponse):
+    batch: AdminInvitationBatch
+    codes_disclosed: Literal[True]
+    codes: list[AdminInvitationPlaintextCodeProjection]
 
 
 class AdminInvitationCodeLookupResponse(AdminSuccessResponse):

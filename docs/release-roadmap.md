@@ -59,7 +59,8 @@ Its v0.1 A0 scope is frozen:
 - OWNER-only role grant/revoke, ADMIN-bounded User disable/restore, and
   immediate session revocation
 - immutable signed quota adjustments and linked reversals
-- HMAC-only `YT-XXXX-XXXX` Invitation batches with one-time raw disclosure
+- HMAC-backed `YT-XXXX-XXXX` Invitation batches with OWNER-only encrypted
+  plaintext recovery for batches created after migration `0011`
 - permanent redacted Administrator audit
 - full archive Trip/failed-draft/READY-Artifact read projections
 - fixed Dashboard, Trip-generation report, and structured preference insights

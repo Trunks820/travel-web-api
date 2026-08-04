@@ -108,6 +108,9 @@ class InvitationBatch(Base):
     disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
     creator_scope_hash: Mapped[bytes | None] = mapped_column(LargeBinary(32))
+    plaintext_recoverable: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -130,6 +133,7 @@ class Invitation(Base):
     )
     sequence_number: Mapped[int | None] = mapped_column(SmallInteger)
     secret_hash: Mapped[bytes] = mapped_column(LargeBinary(32), unique=True, nullable=False)
+    encrypted_secret: Mapped[bytes | None] = mapped_column(LargeBinary)
     source_label: Mapped[str] = mapped_column(String(120), nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

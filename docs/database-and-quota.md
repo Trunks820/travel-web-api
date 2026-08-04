@@ -235,11 +235,15 @@ recalculate them and does not change existing User balances.
 | `expires_at` | TIMESTAMPTZ | required for new codes |
 | `disabled_at` | TIMESTAMPTZ NULL | irreversible whole-batch disable |
 | `created_by_user_id` | UUID NULL FK | de-identified on Account Closure |
+| `plaintext_recoverable` | BOOLEAN | false for pre-0011 history; true only when every code has authenticated ciphertext |
 | `created_at` | TIMESTAMPTZ | |
 
-Raw codes never enter this table. A unique `(batch_id, sequence_number)` on
-`invitation` supplies stable `#001` projections. HMAC digest uniqueness rejects
-collisions; generation retries with a new cryptographically secure value.
+Raw codes never enter `invitation_batch`. `invitation.encrypted_secret` stores
+an optional versioned AES-GCM envelope for OWNER-only recovery while
+`invitation.secret_hash` remains the authoritative redemption lookup. A unique
+`(batch_id, sequence_number)` supplies stable `#001` projections. Existing
+rows keep `encrypted_secret=NULL`; HMAC digest uniqueness rejects collisions
+and generation retries with a new cryptographically secure value.
 
 ### 2.11 `admin_idempotency`
 

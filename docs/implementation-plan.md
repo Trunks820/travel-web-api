@@ -209,7 +209,7 @@ Status: **Accepted**.
 The frozen contract keeps `USER`/`ADMIN` as the database roles and derives one
 OWNER product identity from a configured immutable `app_user.id`. It freezes
 the task-specific endpoint inventory, OWNER/ADMIN capability matrix, signed
-quota adjustments, HMAC-only short Invitation codes with one-time disclosure,
+quota adjustments, HMAC-backed short Invitation codes with OWNER-only encrypted recovery,
 permanent redacted audit, archive/failed-draft/Artifact read boundaries,
 Dashboard/report formulas, UUID idempotency, and the no-secondary-confirmation
 policy. Frontend page composition and template choice remain P5B concerns and
@@ -255,7 +255,7 @@ PostgreSQL.
 ### P4.2 — Invitation batches and short codes
 
 - batch list/create/detail and irreversible batch disable
-- exact `YT-XXXX-XXXX` codes, HMAC-only storage, required 1-90 day expiry
+- exact `YT-XXXX-XXXX` codes, HMAC redemption lookup, OWNER-only encrypted recovery, required 1-90 day expiry
 - one-time raw disclosure and non-disclosing idempotent replay
 - JSON-body full-code lookup and irreversible one-code disable
 - separate ACTIVE/EXPIRED/DISABLED/EXHAUSTED states

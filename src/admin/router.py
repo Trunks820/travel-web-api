@@ -9,9 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.admin.audit import append_admin_audit
-from src.admin.auth import AdminContext, get_current_admin
+from src.admin.auth import AdminContext, get_current_admin, require_capability
 from src.admin.invitations import (
     batch_detail,
+    batch_plaintext_codes,
     create_batch,
     disable_invitation_resource,
     invitation_status,
@@ -34,6 +35,7 @@ from src.admin.schemas import (
     AdminInvitationBatchCreateResponse,
     AdminInvitationBatchDetailResponse,
     AdminInvitationBatchListResponse,
+    AdminInvitationBatchPlaintextResponse,
     AdminInvitationCodeLookupResponse,
     AdminMeResponse,
     AdminMutation,
@@ -458,6 +460,85 @@ async def invitation_batch(
         result = await batch_detail(db, batch_id)
     except AdminOperationError as exc:
         raise _raise_admin(exc) from exc
+    return {"ok": True, "request_id": _request_id(request), **result}
+
+
+@router.get(
+    "/invitation-batches/{batch_id}/plaintext-codes",
+    response_model=AdminInvitationBatchPlaintextResponse,
+    responses={
+        **ADMIN_RESOURCE_RESPONSES,
+        409: {
+            "model": AdminErrorResponse,
+            "description": "INVITATION_PLAINTEXT_UNAVAILABLE",
+        },
+    },
+)
+async def invitation_batch_plaintext_codes(
+    batch_id: str,
+    request: Request,
+    response: Response,
+    admin: AdminContext = CURRENT_ADMIN,
+    db: AsyncSession = DB_SESSION,
+):
+    try:
+        require_capability(admin, "invitation.secret.read")
+    except ApiError as exc:
+        await append_admin_audit(
+            db,
+            request.app.state.settings,
+            actor_user_id=admin.user.id,
+            actor_identity=admin.product_identity,
+            action="REVEAL_INVITATION_BATCH_CODES",
+            target_type="INVITATION_BATCH",
+            target_id=batch_id,
+            result="FAILURE",
+            error_code=exc.code,
+            request_id=_request_id(request),
+            source_ip=_source_ip(request),
+        )
+        await db.commit()
+        raise
+    try:
+        result = await batch_plaintext_codes(
+            db,
+            request.app.state.settings,
+            batch_id,
+        )
+    except AdminOperationError as exc:
+        await append_admin_audit(
+            db,
+            request.app.state.settings,
+            actor_user_id=admin.user.id,
+            actor_identity=admin.product_identity,
+            action="REVEAL_INVITATION_BATCH_CODES",
+            target_type="INVITATION_BATCH",
+            target_id=batch_id,
+            result="FAILURE",
+            error_code=exc.code,
+            request_id=_request_id(request),
+            source_ip=_source_ip(request),
+        )
+        await db.commit()
+        raise _raise_admin(exc) from exc
+    await append_admin_audit(
+        db,
+        request.app.state.settings,
+        actor_user_id=admin.user.id,
+        actor_identity=admin.product_identity,
+        action="REVEAL_INVITATION_BATCH_CODES",
+        target_type="INVITATION_BATCH",
+        target_id=batch_id,
+        result="SUCCESS",
+        request_id=_request_id(request),
+        source_ip=_source_ip(request),
+        after={
+            "code_count": len(result["codes"]),
+            "active_count": sum(code["status"] == "ACTIVE" for code in result["codes"]),
+        },
+    )
+    await db.commit()
+    response.headers["Cache-Control"] = "private, no-store"
     return {"ok": True, "request_id": _request_id(request), **result}
 
 

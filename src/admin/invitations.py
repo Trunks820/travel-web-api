@@ -21,6 +21,11 @@ from src.invitations.service import (
     new_short_invitation_code,
     normalize_invitation_code,
 )
+from src.security.invitation_cipher import (
+    InvitationCipherError,
+    decrypt_invitation_code,
+    encrypt_invitation_code,
+)
 from src.security.secrets import hash_secret, new_opaque_id
 
 
@@ -43,6 +48,7 @@ def batch_public(row: InvitationBatch) -> dict[str, Any]:
         "valid_days": row.valid_days,
         "expires_at": row.expires_at.isoformat(),
         "disabled_at": row.disabled_at.isoformat() if row.disabled_at else None,
+        "plaintext_recoverable": row.plaintext_recoverable,
         "created_at": row.created_at.isoformat(),
     }
 
@@ -92,6 +98,7 @@ async def create_batch(
             expires_at=now + timedelta(days=valid_days),
             created_by_user_id=admin.user.id,
             creator_scope_hash=admin_subject_hash(admin.user.id, settings),
+            plaintext_recoverable=True,
             created_at=now,
         )
         session.add(batch)
@@ -113,12 +120,18 @@ async def create_batch(
                     break
             digests.add(digest)
             raw_codes.append(raw)
+            code_public_id = new_opaque_id("code_")
             session.add(
                 Invitation(
-                    public_id=new_opaque_id("code_"),
+                    public_id=code_public_id,
                     batch_id=batch.id,
                     sequence_number=sequence,
                     secret_hash=digest,
+                    encrypted_secret=encrypt_invitation_code(
+                        raw,
+                        public_id=code_public_id,
+                        pepper=settings.secret_hash_pepper.get_secret_value(),
+                    ),
                     source_label=batch.source_label,
                     expires_at=batch.expires_at,
                     created_at=now,
@@ -196,6 +209,66 @@ async def batch_detail(session: AsyncSession, batch_id: str) -> dict[str, Any]:
             }
             for row in rows
         ],
+    }
+
+
+async def batch_plaintext_codes(
+    session: AsyncSession,
+    settings: Settings,
+    batch_id: str,
+) -> dict[str, Any]:
+    batch = await session.scalar(
+        select(InvitationBatch).where(InvitationBatch.public_id == batch_id)
+    )
+    if batch is None:
+        raise AdminOperationError(404, "ADMIN_RESOURCE_NOT_FOUND", "邀请码批次不存在。")
+    if not batch.plaintext_recoverable:
+        raise AdminOperationError(
+            409,
+            "INVITATION_PLAINTEXT_UNAVAILABLE",
+            "该历史批次未保存加密明文，无法恢复邀请码。",
+        )
+    rows = (
+        await session.execute(
+            select(Invitation)
+            .where(Invitation.batch_id == batch.id)
+            .order_by(Invitation.sequence_number)
+        )
+    ).scalars()
+    now = datetime.now(UTC)
+    codes: list[dict[str, Any]] = []
+    for row in rows:
+        if row.public_id is None or row.encrypted_secret is None:
+            raise AdminOperationError(
+                500,
+                "INVITATION_CIPHERTEXT_INCONSISTENT",
+                "邀请码密文记录不完整。",
+            )
+        try:
+            raw_code = decrypt_invitation_code(
+                row.encrypted_secret,
+                public_id=row.public_id,
+                pepper=settings.secret_hash_pepper.get_secret_value(),
+            )
+        except InvitationCipherError as exc:
+            raise AdminOperationError(
+                500,
+                "INVITATION_CIPHERTEXT_INCONSISTENT",
+                "邀请码密文校验失败。",
+            ) from exc
+        codes.append(
+            {
+                "code_id": row.public_id,
+                "sequence": f"#{row.sequence_number:03d}",
+                "status": invitation_status(row, now),
+                "redeemed_at": row.redeemed_at,
+                "code": raw_code,
+            }
+        )
+    return {
+        "batch": batch_public(batch),
+        "codes_disclosed": True,
+        "codes": codes,
     }
 
 

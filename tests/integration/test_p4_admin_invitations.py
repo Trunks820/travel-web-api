@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import func, select
 
-from src.db.models import AdminAuditLog, AppUser, Invitation, UserSession
+from src.db.models import AdminAuditLog, AppUser, Invitation, InvitationBatch, UserSession
 from src.invitations.service import find_invitation
 from src.security.secrets import hash_secret, new_opaque_id
 from tests.factories import unique_display_name_fields
@@ -70,6 +70,7 @@ async def test_short_code_batch_one_time_disclosure_lookup_and_disable(
     assert created.status_code == 201
     payload = created.json()
     assert payload["codes_disclosed"] is True
+    assert payload["batch"]["plaintext_recoverable"] is True
     assert len(payload["codes"]) == 2
     for code in payload["codes"]:
         assert re.fullmatch(
@@ -120,10 +121,115 @@ async def test_short_code_batch_one_time_disclosure_lookup_and_disable(
         for row in rows:
             assert len(row.secret_hash) == 32
             assert payload["codes"][row.sequence_number - 1].encode() not in row.secret_hash
+            assert row.encrypted_secret is not None
+            assert payload["codes"][row.sequence_number - 1].encode() not in row.encrypted_secret
         found = await find_invitation(session, payload["codes"][1].lower(), test_settings)
         assert found is not None
         audits = (await session.execute(select(AdminAuditLog))).scalars().all()
         assert payload["codes"][0] not in str([audit.after_json for audit in audits])
+
+
+@pytest.mark.asyncio
+async def test_owner_can_reveal_encrypted_batch_codes_and_admin_cannot(
+    client,
+    session_factory,
+    test_settings,
+):
+    owner, owner_token = await _admin(session_factory, test_settings)
+    test_settings.admin_owner_user_id = owner.id
+    created = await client.post(
+        "/api/admin/invitation-batches",
+        headers=_headers(test_settings, owner_token),
+        json={
+            "name": "owner-readable",
+            "source_label": "friends",
+            "count": 2,
+            "valid_days": 30,
+            "reason": "owner distribution",
+            "idempotency_key": str(uuid.uuid4()),
+        },
+    )
+    assert created.status_code == 201
+    payload = created.json()
+    batch_id = payload["batch"]["batch_id"]
+
+    revealed = await client.get(
+        f"/api/admin/invitation-batches/{batch_id}/plaintext-codes",
+        headers=_headers(test_settings, owner_token),
+    )
+    assert revealed.status_code == 200
+    assert revealed.headers["cache-control"] == "private, no-store"
+    assert [item["code"] for item in revealed.json()["codes"]] == payload["codes"]
+    assert all(item["status"] == "ACTIVE" for item in revealed.json()["codes"])
+
+    admin, admin_token = await _admin(session_factory, test_settings)
+    denied = await client.get(
+        f"/api/admin/invitation-batches/{batch_id}/plaintext-codes",
+        headers=_headers(test_settings, admin_token),
+    )
+    assert denied.status_code == 403
+    assert denied.headers["cache-control"] == "private, no-store"
+    assert denied.json()["error"]["code"] == "OWNER_REQUIRED"
+
+    async with session_factory() as session:
+        audits = (
+            (
+                await session.execute(
+                    select(AdminAuditLog)
+                    .where(AdminAuditLog.action == "REVEAL_INVITATION_BATCH_CODES")
+                    .order_by(AdminAuditLog.created_at)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert [audit.result for audit in audits] == ["SUCCESS", "FAILURE"]
+        serialized = str(
+            [(audit.before_json, audit.after_json, audit.client_json) for audit in audits]
+        )
+        assert all(code not in serialized for code in payload["codes"])
+
+
+@pytest.mark.asyncio
+async def test_owner_plaintext_read_reports_and_audits_legacy_unavailability(
+    client,
+    session_factory,
+    test_settings,
+):
+    owner, token = await _admin(session_factory, test_settings)
+    test_settings.admin_owner_user_id = owner.id
+    now = datetime.now(UTC)
+    async with session_factory() as session, session.begin():
+        batch = InvitationBatch(
+            public_id=new_opaque_id("batch_"),
+            name="legacy",
+            source_label="legacy",
+            code_count=1,
+            valid_days=30,
+            expires_at=now + timedelta(days=30),
+            created_by_user_id=owner.id,
+            plaintext_recoverable=False,
+            created_at=now,
+        )
+        session.add(batch)
+        await session.flush()
+        batch_id = batch.public_id
+
+    response = await client.get(
+        f"/api/admin/invitation-batches/{batch_id}/plaintext-codes",
+        headers=_headers(test_settings, token),
+    )
+    assert response.status_code == 409
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.json()["error"]["code"] == "INVITATION_PLAINTEXT_UNAVAILABLE"
+
+    async with session_factory() as session:
+        audit = await session.scalar(
+            select(AdminAuditLog).where(AdminAuditLog.action == "REVEAL_INVITATION_BATCH_CODES")
+        )
+        assert audit is not None
+        assert audit.result == "FAILURE"
+        assert audit.error_code == "INVITATION_PLAINTEXT_UNAVAILABLE"
 
 
 @pytest.mark.asyncio

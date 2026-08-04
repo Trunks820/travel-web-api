@@ -17,6 +17,7 @@ OWNER_CAPABILITIES = frozenset(
         "audit.read",
         "artifact.read",
         "invitation.manage",
+        "invitation.secret.read",
         "quota.manage_all",
         "report.read",
         "role.manage",
@@ -114,5 +115,9 @@ async def get_current_admin(
 
 def require_capability(context: AdminContext, capability: str) -> None:
     if capability not in context.capabilities:
-        code = "OWNER_REQUIRED" if capability == "role.manage" else "ADMIN_FORBIDDEN"
+        code = (
+            "OWNER_REQUIRED"
+            if capability in {"role.manage", "invitation.secret.read"}
+            else "ADMIN_FORBIDDEN"
+        )
         raise ApiError(403, code, "当前管理员无权执行此操作。")
