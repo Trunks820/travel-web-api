@@ -10,6 +10,20 @@ class HermesModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+PublishedVariant = Literal["normal", "safe"]
+DeliveryStatus = Literal["NORMAL", "DEGRADED"]
+
+
+def _validate_delivery_combination(
+    published_variant: PublishedVariant | None,
+    delivery_status: DeliveryStatus | None,
+) -> None:
+    if (published_variant is None) != (delivery_status is None):
+        raise ValueError("delivery fields must be present together")
+    if published_variant == "safe" and delivery_status != "DEGRADED":
+        raise ValueError("safe delivery must be degraded")
+
+
 class HermesTripCreated(HermesModel):
     job_id: str = Field(min_length=1, max_length=160)
     status: str = "PENDING"
@@ -43,6 +57,8 @@ class HermesJobStatus(HermesModel):
     plan_count: int | None = Field(default=None, ge=0)
     result_type: str | None = Field(default=None, max_length=80)
     result_record_id: int | None = Field(default=None, ge=1)
+    published_variant: PublishedVariant | None = None
+    delivery_status: DeliveryStatus | None = None
     elapsed_ms: int | None = Field(default=None, ge=0)
     queue_wait_ms: int | None = Field(default=None, ge=0)
     run_elapsed_ms: int | None = Field(default=None, ge=0)
@@ -65,6 +81,17 @@ class HermesJobStatus(HermesModel):
         }:
             raise ValueError("unsupported job status")
         return normalized
+
+    @model_validator(mode="after")
+    def normalize_delivery(self) -> HermesJobStatus:
+        if self.status == "SUCCESS" and self.result_record_id is not None:
+            if self.published_variant is None and self.delivery_status is None:
+                self.published_variant = "normal"
+                self.delivery_status = "NORMAL"
+        elif self.published_variant is not None or self.delivery_status is not None:
+            raise ValueError("non-success job cannot expose delivery fields")
+        _validate_delivery_combination(self.published_variant, self.delivery_status)
+        return self
 
 
 class HermesAdminEnvelope(HermesModel):
@@ -549,7 +576,9 @@ class ResultMustInclude(HermesModel):
 
 
 class HermesResult(HermesModel):
-    schema_version: Literal["2.0"]
+    schema_version: Literal["2.1"]
+    published_variant: PublishedVariant
+    delivery_status: DeliveryStatus
     result_id: int = Field(ge=1)
     city: ResultCity
     request: ResultRequest
@@ -557,6 +586,23 @@ class HermesResult(HermesModel):
     time_preferences: ResultTimePreferences | None = None
     plans: list[ResultPlan] = Field(min_length=1, max_length=20)
     must_include: list[ResultMustInclude] | None = Field(default=None, max_length=20)
+
+    @model_validator(mode="before")
+    @classmethod
+    def upgrade_schema_20(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        upgraded = dict(value)
+        if upgraded.get("schema_version") == "2.0":
+            upgraded["schema_version"] = "2.1"
+            upgraded.setdefault("published_variant", "normal")
+            upgraded.setdefault("delivery_status", "NORMAL")
+        return upgraded
+
+    @model_validator(mode="after")
+    def validate_delivery(self) -> HermesResult:
+        _validate_delivery_combination(self.published_variant, self.delivery_status)
+        return self
 
 
 class HermesStructuredRequest(HermesModel):
@@ -633,6 +679,8 @@ class HermesSsePayload(HermesModel):
     message: str | None = Field(default=None, max_length=500)
     queue_position: int | None = Field(default=None, ge=0)
     result_record_id: int | None = Field(default=None, ge=1)
+    published_variant: PublishedVariant | None = None
+    delivery_status: DeliveryStatus | None = None
     plan_count: int | None = Field(default=None, ge=0)
     elapsed_ms: int | None = Field(default=None, ge=0)
     error: HermesSseError | None = None
@@ -641,6 +689,8 @@ class HermesSsePayload(HermesModel):
     @classmethod
     def normalize_status(cls, value: str) -> str:
         normalized = value.upper()
+        if normalized == "COMPLETED":
+            normalized = "SUCCESS"
         if normalized not in {
             "PENDING",
             "RUNNING",
@@ -651,6 +701,17 @@ class HermesSsePayload(HermesModel):
         }:
             raise ValueError("unsupported SSE status")
         return normalized
+
+    @model_validator(mode="after")
+    def normalize_delivery(self) -> HermesSsePayload:
+        if self.status == "SUCCESS" and self.result_record_id is not None:
+            if self.published_variant is None and self.delivery_status is None:
+                self.published_variant = "normal"
+                self.delivery_status = "NORMAL"
+        elif self.published_variant is not None or self.delivery_status is not None:
+            raise ValueError("non-success SSE cannot expose delivery fields")
+        _validate_delivery_combination(self.published_variant, self.delivery_status)
+        return self
 
 
 def validate_sse_payload(

@@ -231,7 +231,13 @@ async def test_job_status_and_sse_drop_unapproved_fields() -> None:
     assert events == [
         (
             "complete",
-            {"status": "SUCCESS", "job_id": "job-1", "result_record_id": 9},
+            {
+                "status": "SUCCESS",
+                "job_id": "job-1",
+                "result_record_id": 9,
+                "published_variant": "normal",
+                "delivery_status": "NORMAL",
+            },
         )
     ]
 

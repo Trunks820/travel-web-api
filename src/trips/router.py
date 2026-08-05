@@ -13,7 +13,7 @@ from src.api.errors import ApiError
 from src.auth.dependencies import AuthContext, get_current_auth
 from src.db.session import get_db_session
 from src.integrations.hermes import HermesBusinessError, HermesIntegrationError
-from src.integrations.hermes_models import HermesResult
+from src.integrations.hermes_models import HermesJobStatus, HermesResult
 from src.quota.service import (
     TripOwnershipError,
     owned_success_trip_by_result,
@@ -122,7 +122,7 @@ async def create_trip(
     }
 
 
-@router.get("/jobs/{job_id}")
+@router.get("/jobs/{job_id}", response_model=HermesJobStatus, response_model_exclude_none=True)
 async def job_status(
     job_id: str,
     request: Request,

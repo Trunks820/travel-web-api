@@ -13,7 +13,7 @@ from src.integrations.hermes import HermesClient, HermesIntegrationError
 from src.integrations.hermes_models import HermesResult
 from tests.factories import schema_2_cost_estimate
 
-FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "v0.9.4-public-schema-2.0.json"
+FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "v0.9.5-public-schema-2.1.json"
 
 
 def _result_payload(*, include_internal_fields: bool = False) -> dict:
@@ -189,9 +189,9 @@ def test_openapi_and_local_fixture_match_hermes_schema_2_public_surface() -> Non
         assert forbidden not in serialized_components
 
 
-def test_local_contract_fixture_is_identical_to_hermes_p4_fixture() -> None:
+def test_local_contract_fixture_is_identical_to_hermes_v095_fixture() -> None:
     hermes_fixture = Path(
-        r"D:\tools\workSpace\hermes-travel\tests\fixtures\v0.9.4-public-schema-2.0.json"
+        r"D:\tools\workSpace\hermes-travel\tests\fixtures\v0.9.5-public-schema-2.1.json"
     )
     if not hermes_fixture.exists():
         pytest.skip("Hermes sibling fixture is not available in this checkout")

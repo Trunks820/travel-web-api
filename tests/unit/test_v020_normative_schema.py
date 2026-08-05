@@ -175,7 +175,9 @@ def _base_response() -> dict:
                 },
                 "request_source": "BFF_USER_TRIP",
                 "final_guide": {
-                    "schema_version": "2.0",
+                    "schema_version": "2.1",
+                    "published_variant": "normal",
+                    "delivery_status": "NORMAL",
                     "result_id": 9001,
                     "city": {"name": "重庆"},
                     "request": {

@@ -1,0 +1,53 @@
+{
+  "evidence_version": "v0.9.5-review-safe-delivery",
+  "schema_version": "2.1",
+  "trip_result_properties": [
+    "schema_version",
+    "published_variant",
+    "delivery_status",
+    "result_id",
+    "city",
+    "request",
+    "weather",
+    "time_preferences",
+    "plans",
+    "must_include"
+  ],
+  "request_properties": [
+    "days",
+    "people_count",
+    "preferences",
+    "avoid"
+  ],
+  "removed_public_fields": [
+    "request.from_city",
+    "request.to_city",
+    "request.start_date",
+    "request.end_date",
+    "request.notes",
+    "request.commute_mode",
+    "commute_mode_report"
+  ],
+  "plan_required_addition": "cost_estimate",
+  "cost_estimate_properties": [
+    "snapshot_version", "completeness", "currency", "estimated_at",
+    "scenarios", "assumptions", "exclusions", "notice"
+  ],
+  "scenario_properties": [
+    "scenario_id", "intercity_mode", "label", "total_scope", "total_range",
+    "categories", "missing_categories"
+  ],
+  "category_properties": ["category", "coverage", "range", "price_basis", "basis_label"],
+  "money_range_properties": ["min_cny", "max_cny"],
+  "forbidden_cost_properties": [
+    "snapshot_id", "diagnostics", "observations", "calculation_unit",
+    "line_items", "provider_payload", "reference_version", "raw_fares", "top_options"
+  ],
+  "synthetic_payload_size_bytes": {
+    "schema_1_4_without_cost": 996,
+    "schema_2_0_with_cost": 2993,
+    "schema_2_1_with_cost": 3049,
+    "public_cost_summary": 2211,
+    "internal_snapshot": 3962
+  }
+}
