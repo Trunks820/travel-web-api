@@ -37,6 +37,16 @@ SAFE_FAILURES: dict[str, tuple[str, str, bool]] = {
     "CONTENT_REJECTED": ("CONTENT_REJECTED", "本次请求无法生成行程。", False),
     "GENERATION_TIMEOUT": ("GENERATION_TIMEOUT", "生成超时，请稍后重试。", True),
     "GENERATION_FAILED": ("GENERATION_FAILED", "生成失败，请稍后重试。", True),
+    "WRITER_CAPACITY_BUSY": (
+        "SERVICE_UNAVAILABLE",
+        "服务暂时不可用，请稍后再试",
+        True,
+    ),
+    "WRITER_ENDPOINTS_UNAVAILABLE": (
+        "SERVICE_UNAVAILABLE",
+        "服务暂时不可用，请稍后再试",
+        True,
+    ),
 }
 ARTIFACT_EXTENSIONS = {
     "pdf": "pdf",

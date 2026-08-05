@@ -25,6 +25,7 @@ from src.quota.service import (
 from src.security.secrets import hash_secret, new_opaque_id, new_session_token
 from src.trips.reconciliation import reconcile_bounded
 from src.trips.schemas import normalized_request_hash
+from src.trips.service import safe_failure
 from tests.factories import unique_display_name_fields
 
 pytestmark = pytest.mark.integration
@@ -408,6 +409,59 @@ async def test_each_failure_terminal_releases_once(
         quota = await session.scalar(select(TripQuotaEntry))
         assert quota is not None and quota.status == "RELEASED"
         assert quota.settle_reason == terminal_status
+
+
+@pytest.mark.parametrize(
+    "hermes_error_code",
+    ["WRITER_CAPACITY_BUSY", "WRITER_ENDPOINTS_UNAVAILABLE"],
+)
+async def test_writer_capacity_failures_map_safely_and_release_quota_once(
+    session_factory,
+    test_settings,
+    hermes_error_code,
+) -> None:
+    user, _token = await _seed_user(
+        session_factory,
+        test_settings,
+        email=f"{hermes_error_code.lower()}@example.com",
+        credits=1,
+    )
+    request_json = _request(f"web-{hermes_error_code.lower()}")["trip_request"]
+    reserved = await reserve_trip(
+        session_factory,
+        test_settings,
+        user_id=user.id,
+        client_request_id=f"web-{hermes_error_code.lower()}",
+        request_hash=normalized_request_hash(request_json),
+        request_json=request_json,
+    )
+    code, message, retryable = safe_failure(
+        hermes_error_code,
+        "endpoint=venlacy cap=3 credential=must-not-leak",
+    )
+    assert (code, message, retryable) == (
+        "SERVICE_UNAVAILABLE",
+        "服务暂时不可用，请稍后再试",
+        True,
+    )
+    for _ in range(2):
+        settled = await settle_trip(
+            session_factory,
+            trip_id=reserved.trip.id,
+            terminal_status="FAILED",
+            error_code=code,
+            error_message=message,
+            error_retryable=retryable,
+        )
+    assert settled.status == "FAILED"
+    assert settled.error_code == "SERVICE_UNAVAILABLE"
+    assert "venlacy" not in (settled.error_message or "")
+    async with session_factory() as session:
+        quota = await session.scalar(
+            select(TripQuotaEntry).where(TripQuotaEntry.user_id == user.id)
+        )
+        assert quota is not None and quota.status == "RELEASED"
+        assert quota.settle_reason == "FAILED"
 
 
 async def test_owned_job_sse_result_artifact_places_and_cross_user_404(
